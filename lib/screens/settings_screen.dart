@@ -1,8 +1,7 @@
 // lib/screens/settings_screen.dart
 import 'package:flutter/material.dart';
- // Import generated localizations
+// Import generated localizations
 import 'package:provider/provider.dart'; // Import provider
-import 'package:google_mobile_ads/google_mobile_ads.dart'; // NEW: Import AdMob
 import 'package:flutter/foundation.dart'; // NEW: Import for defaultTargetPlatform
 import 'package:share_plus/share_plus.dart';
 import '../l10n/app_localizations.dart';
@@ -11,9 +10,11 @@ import '../theme_notifier.dart'; // Import theme notifier
 import '../game_settings_notifier.dart'; // NEW: Import game settings notifier
 import '../font_size_notifier.dart'; // NEW: Import font size notifier
 import 'about_screen.dart'; // NEW: Import the about screen
+import '../widgets/anchored_adaptive_banner_ad.dart';
 import '../widgets/app_footer.dart';
 
-class SettingsScreen extends StatefulWidget { // Changed to StatefulWidget to manage ad lifecycle
+class SettingsScreen extends StatefulWidget {
+  // Changed to StatefulWidget to manage ad lifecycle
   const SettingsScreen({super.key});
 
   @override
@@ -21,46 +22,13 @@ class SettingsScreen extends StatefulWidget { // Changed to StatefulWidget to ma
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  BannerAd? _bannerAd;
-  bool _isBannerAdLoaded = false;
-/// //////////////////////////////////////////////////////////////////////////////////////////////////////////
+  /// //////////////////////////////////////////////////////////////////////////////////////////////////////////
   // TODO: Replace this test ad unit ID with your own banner ad unit ID.
   final String _adUnitId =
-  (defaultTargetPlatform == TargetPlatform.android) // FIXED: Using defaultTargetPlatform
-      ? 'ca-app-pub-8588489900323524/2555306020' // Test Android Banner
-      : 'ca-app-pub-8588489900323524/9168815834'; // Test iOS Banner
-
-  @override
-  void initState() {
-    super.initState();
-    _loadBannerAd();
-  }
-
-  void _loadBannerAd() {
-    _bannerAd = BannerAd(
-      adUnitId: _adUnitId,
-      request: const AdRequest(),
-      size: AdSize.banner,
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          setState(() {
-            _isBannerAdLoaded = true;
-          });
-        },
-        onAdFailedToLoad: (ad, err) {
-          ad.dispose();
-        },
-        onAdOpened: (ad) {},
-        onAdClosed: (ad) {},
-      ),
-    )..load();
-  }
-
-  @override
-  void dispose() {
-    _bannerAd?.dispose(); // Dispose banner ad
-    super.dispose();
-  }
+      (defaultTargetPlatform ==
+              TargetPlatform.android) // FIXED: Using defaultTargetPlatform
+          ? 'ca-app-pub-8588489900323524/2555306020' // Test Android Banner
+          : 'ca-app-pub-8588489900323524/9168815834'; // Test iOS Banner
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +43,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: const SizedBox.shrink(),
         automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: const Icon(Icons.home_rounded),
+          tooltip: appLocalizations.homeScreenTitle,
+          onPressed: () {
+            Navigator.pushReplacementNamed(context, '/home');
+          },
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
@@ -125,16 +100,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   const SizedBox(height: 8),
                   Card(
-                    margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 0),
+                    margin: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 0,
+                    ),
                     elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
                       child: Row(
                         children: [
-                          Icon(Icons.language, color: Theme.of(context).iconTheme.color),
+                          Icon(
+                            Icons.language,
+                            color: Theme.of(context).iconTheme.color,
+                          ),
                           const SizedBox(width: 16),
-                          Text(appLocalizations.language, style: Theme.of(context).textTheme.titleMedium),
+                          Text(
+                            appLocalizations.language,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
                           const Spacer(),
                           Theme(
                             data: Theme.of(context).copyWith(
@@ -145,7 +134,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               child: DropdownButton<Locale>(
                                 value: localeNotifier.locale,
                                 isExpanded: true,
-                                icon: Icon(Icons.arrow_drop_down, color: Theme.of(context).iconTheme.color),
+                                icon: Icon(
+                                  Icons.arrow_drop_down,
+                                  color: Theme.of(context).iconTheme.color,
+                                ),
                                 iconSize: 28,
                                 elevation: 8,
                                 style: Theme.of(context).textTheme.titleMedium,
@@ -156,53 +148,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   }
                                 },
                                 //TODO: add more language
-                                items: AppLocalizations.supportedLocales.map<DropdownMenuItem<Locale>>((Locale locale) {
-                                  String languageName;
-                                  switch (locale.languageCode) {
-                                    case 'en':
-                                      languageName = 'English';
-                                      break;
-                                    case 'es':
-                                      languageName = 'Español';
-                                      break;
-                                    case 'pt':
-                                      languageName = 'Português';
-                                      break;
-                                    case 'it':
-                                      languageName = 'Italiano';
-                                      break;
-                                    case 'fr':
-                                      languageName = 'Français';
-                                      break;
-                                    case 'zh':
-                                      languageName = '中文';
-                                      break;
-                                    case 'hi':
-                                      languageName = 'हिन्दी';
-                                      break;
-                                    case 'ar':
-                                      languageName = 'العربية';
-                                      break;
-                                    case 'bn':
-                                      languageName = 'বাংলা';
-                                      break;
-                                    case 'ru':
-                                      languageName = 'Русский';
-                                      break;
-                                    case 'ur':
-                                      languageName = 'اردو';
-                                      break;
-                                    default:
-                                      languageName = 'Unknown';
-                                  }
-                                  return DropdownMenuItem<Locale>(
-                                    value: locale,
-                                    child: Text(
-                                      languageName,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  );
-                                }).toList(),
+                                items:
+                                    AppLocalizations.supportedLocales
+                                        .map<DropdownMenuItem<Locale>>((
+                                          Locale locale,
+                                        ) {
+                                          String languageName;
+                                          switch (locale.languageCode) {
+                                            case 'en':
+                                              languageName = 'English';
+                                              break;
+                                            case 'es':
+                                              languageName = 'Español';
+                                              break;
+                                            case 'pt':
+                                              languageName = 'Português';
+                                              break;
+                                            case 'it':
+                                              languageName = 'Italiano';
+                                              break;
+                                            case 'fr':
+                                              languageName = 'Français';
+                                              break;
+                                            case 'zh':
+                                              languageName = '中文';
+                                              break;
+                                            case 'hi':
+                                              languageName = 'हिन्दी';
+                                              break;
+                                            case 'ar':
+                                              languageName = 'العربية';
+                                              break;
+                                            case 'bn':
+                                              languageName = 'বাংলা';
+                                              break;
+                                            case 'ru':
+                                              languageName = 'Русский';
+                                              break;
+                                            case 'ur':
+                                              languageName = 'اردو';
+                                              break;
+                                            default:
+                                              languageName = 'Unknown';
+                                          }
+                                          return DropdownMenuItem<Locale>(
+                                            value: locale,
+                                            child: Text(
+                                              languageName,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          );
+                                        })
+                                        .toList(),
                               ),
                             ),
                           ),
@@ -212,14 +209,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 10),
                   Card(
-                    margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 0),
+                    margin: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 0,
+                    ),
                     elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
                       child: Row(
                         children: [
-                          Icon(Icons.brightness_6, color: Theme.of(context).iconTheme.color),
+                          Icon(
+                            Icons.brightness_6,
+                            color: Theme.of(context).iconTheme.color,
+                          ),
                           const SizedBox(width: 16),
                           Expanded(
                             child: Text(
@@ -237,7 +245,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               child: DropdownButton<ThemeMode>(
                                 value: themeNotifier.themeMode,
                                 isExpanded: true,
-                                icon: Icon(Icons.arrow_drop_down, color: Theme.of(context).iconTheme.color),
+                                icon: Icon(
+                                  Icons.arrow_drop_down,
+                                  color: Theme.of(context).iconTheme.color,
+                                ),
                                 iconSize: 28,
                                 elevation: 8,
                                 style: Theme.of(context).textTheme.titleMedium,
@@ -279,18 +290,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 10),
                   Card(
-                    margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 0),
+                    margin: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 0,
+                    ),
                     elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
                       child: Column(
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.score, color: Theme.of(context).iconTheme.color),
+                              Icon(
+                                Icons.score,
+                                color: Theme.of(context).iconTheme.color,
+                              ),
                               const SizedBox(width: 16),
-                              Text('${appLocalizations.maxScoreSetting}: ${gameSettingsNotifier.maxScore}', style: Theme.of(context).textTheme.titleMedium),
+                              Text(
+                                '${appLocalizations.maxScoreSetting}: ${gameSettingsNotifier.maxScore}',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -310,21 +335,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 10),
                   Card(
-                    margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 0),
+                    margin: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 0,
+                    ),
                     elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
                       child: Column(
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.star_half, color: Theme.of(context).iconTheme.color),
+                              Icon(
+                                Icons.star_half,
+                                color: Theme.of(context).iconTheme.color,
+                              ),
                               const SizedBox(width: 16),
                               Expanded(
                                 child: Text(
                                   '${appLocalizations.defaultBonusSetting}: ${gameSettingsNotifier.defaultBonus}',
-                                  style: Theme.of(context).textTheme.titleMedium,
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -337,7 +374,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             divisions: 3,
                             label: gameSettingsNotifier.defaultBonus.toString(),
                             onChanged: (double value) {
-                              gameSettingsNotifier.setDefaultBonus(value.round());
+                              gameSettingsNotifier.setDefaultBonus(
+                                value.round(),
+                              );
                             },
                           ),
                         ],
@@ -346,18 +385,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 10),
                   Card(
-                    margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 0),
+                    margin: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 0,
+                    ),
                     elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
                       child: Column(
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.format_size, color: Theme.of(context).iconTheme.color),
+                              Icon(
+                                Icons.format_size,
+                                color: Theme.of(context).iconTheme.color,
+                              ),
                               const SizedBox(width: 16),
-                              Text('${appLocalizations.fontSizeSetting}: ${fontSizeNotifier.fontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.fontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont)}', style: Theme.of(context).textTheme.titleMedium),
+                              Text(
+                                '${appLocalizations.fontSizeSetting}: ${fontSizeNotifier.fontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.fontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont)}',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -366,7 +419,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             min: 0.8,
                             max: 1.2,
                             divisions: 2,
-                            label: fontSizeNotifier.fontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.fontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont),
+                            label:
+                                fontSizeNotifier.fontSizeScale == 0.8
+                                    ? appLocalizations.smallFont
+                                    : (fontSizeNotifier.fontSizeScale == 1.0
+                                        ? appLocalizations.mediumFont
+                                        : appLocalizations.largeFont),
                             onChanged: (double value) {
                               fontSizeNotifier.setFontSizeScale(value);
                             },
@@ -377,18 +435,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 10),
                   Card(
-                    margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 0),
+                    margin: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 0,
+                    ),
                     elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                        vertical: 8.0,
+                      ),
                       child: Column(
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.score, color: Theme.of(context).iconTheme.color),
+                              Icon(
+                                Icons.score,
+                                color: Theme.of(context).iconTheme.color,
+                              ),
                               const SizedBox(width: 16),
-                              Text('${appLocalizations.scoreSizeSetting}: ${fontSizeNotifier.scoreFontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.scoreFontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont)}', style: Theme.of(context).textTheme.titleMedium),
+                              Text(
+                                '${appLocalizations.scoreSizeSetting}: ${fontSizeNotifier.scoreFontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.scoreFontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont)}',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -397,7 +469,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             min: 0.8,
                             max: 1.6,
                             divisions: 4,
-                            label: fontSizeNotifier.scoreFontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.scoreFontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont),
+                            label:
+                                fontSizeNotifier.scoreFontSizeScale == 0.8
+                                    ? appLocalizations.smallFont
+                                    : (fontSizeNotifier.scoreFontSizeScale ==
+                                            1.0
+                                        ? appLocalizations.mediumFont
+                                        : appLocalizations.largeFont),
                             onChanged: (double value) {
                               fontSizeNotifier.setScoreFontSizeScale(value);
                             },
@@ -410,19 +488,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Builder(
                     builder: (shareContext) {
                       return ListTile(
-                        leading: Icon(Icons.share_rounded, color: Theme.of(shareContext).iconTheme.color),
+                        leading: Icon(
+                          Icons.share_rounded,
+                          color: Theme.of(shareContext).iconTheme.color,
+                        ),
                         title: Text(appLocalizations.shareAppTitle),
                         subtitle: Text(appLocalizations.shareAppSubtitle),
                         onTap: () async {
-                          final String message = appLocalizations.shareAppMessage;
-                          final renderBox = shareContext.findRenderObject() as RenderBox?;
+                          final String message =
+                              appLocalizations.shareAppMessage;
+                          final renderBox =
+                              shareContext.findRenderObject() as RenderBox?;
                           try {
                             await Share.share(
                               message,
                               subject: 'Kapi Note',
-                              sharePositionOrigin: renderBox != null
-                                  ? renderBox.localToGlobal(Offset.zero) & renderBox.size
-                                  : null,
+                              sharePositionOrigin:
+                                  renderBox != null
+                                      ? renderBox.localToGlobal(Offset.zero) &
+                                          renderBox.size
+                                      : null,
                             );
                           } catch (e) {
                             debugPrint('Share failed: $e');
@@ -433,24 +518,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 10),
                   ListTile(
-                    leading: Icon(Icons.info, color: Theme.of(context).iconTheme.color),
-                    title: Text(appLocalizations.about, style: Theme.of(context).textTheme.titleMedium),
+                    leading: Icon(
+                      Icons.info,
+                      color: Theme.of(context).iconTheme.color,
+                    ),
+                    title: Text(
+                      appLocalizations.about,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const AboutScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => const AboutScreen(),
+                        ),
                       );
                     },
                   ),
-                  if (_isBannerAdLoaded && _bannerAd != null)
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: SizedBox(
-                        width: _bannerAd!.size.width.toDouble(),
-                        height: _bannerAd!.size.height.toDouble(),
-                        child: AdWidget(ad: _bannerAd!),
-                      ),
-                    ),
+                  AnchoredAdaptiveBannerAd(adUnitId: _adUnitId),
                   const SizedBox(height: 12),
                   const AppFooter(),
                   const SizedBox(height: 8),

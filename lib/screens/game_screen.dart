@@ -6,12 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 // Import generated localizations
 import 'package:provider/provider.dart'; // Import provider
-import 'package:google_mobile_ads/google_mobile_ads.dart'; // Import AdMob
 import 'package:flutter/foundation.dart'; // NEW: Import for defaultTargetPlatform
 
 import '../game_settings_notifier.dart'; // Import game settings notifier
 import '../font_size_notifier.dart';
 import '../l10n/app_localizations.dart';
+import '../widgets/anchored_adaptive_banner_ad.dart';
 import 'admob_variable.dart';
 import 'fireworks_screen.dart'; // I// Import font size notifier
 import 'settings_screen.dart'; // Imp // Import team name notifier
@@ -28,20 +28,17 @@ class _GameScreenState extends State<GameScreen> {
   final List<int> _teamBScores = [];
   List<int>? _lastAddedScores;
 
-  BannerAd? _bannerAd;
-  bool _isBannerAdLoaded = false;
-
   // TODO: Replace this test ad unit ID with your own banner ad unit ID.
   final String _adUnitId =
-  (defaultTargetPlatform ==
-      TargetPlatform.android) // FIXED: Using defaultTargetPlatform
-      ? AdmobVariable.bannerAndroidUnit // Test Android Banner
-      : AdmobVariable.bannerIosUnit; // Test iOS Banner
+      (defaultTargetPlatform ==
+              TargetPlatform.android) // FIXED: Using defaultTargetPlatform
+          ? AdmobVariable
+              .bannerAndroidUnit // Test Android Banner
+          : AdmobVariable.bannerIosUnit; // Test iOS Banner
 
   @override
   void initState() {
     super.initState();
-    _loadBannerAd();
     _loadScores();
   }
 
@@ -70,26 +67,6 @@ class _GameScreenState extends State<GameScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('teamAScores', jsonEncode(_teamAScores));
     await prefs.setString('teamBScores', jsonEncode(_teamBScores));
-  }
-
-  void _loadBannerAd() {
-    _bannerAd = BannerAd(
-      adUnitId: _adUnitId,
-      request: const AdRequest(),
-      size: AdSize.banner,
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          setState(() {
-            _isBannerAdLoaded = true;
-          });
-        },
-        onAdFailedToLoad: (ad, err) {
-          ad.dispose();
-        },
-        onAdOpened: (ad) {},
-        onAdClosed: (ad) {},
-      ),
-    )..load();
   }
 
   // Method to remove the last score for a specific team
@@ -211,7 +188,7 @@ class _GameScreenState extends State<GameScreen> {
                     // Show error dialog
                     showDialog<void>(
                       context:
-                      context, // Use the context from the parent AlertDialog's builder
+                          context, // Use the context from the parent AlertDialog's builder
                       builder: (BuildContext innerDialogContext) {
                         // This context is for the new dialog
                         return AlertDialog(
@@ -331,8 +308,8 @@ class _GameScreenState extends State<GameScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) =>
-                FireworksScreen(winningTeamName: winningTeamName),
+            builder:
+                (context) => FireworksScreen(winningTeamName: winningTeamName),
           ),
         );
       } else {
@@ -402,7 +379,6 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   void dispose() {
-    _bannerAd?.dispose(); // Dispose banner ad
     _saveScores();
     super.dispose();
   }
@@ -481,50 +457,40 @@ class _GameScreenState extends State<GameScreen> {
                   Expanded(
                     child: Row(
                       children: [
-                      // Team A Column
-                      Expanded(
-                        child: _buildTeamColumn(
-                          context,
-                          teamNameNotifier
-                              .teamAName, // Use team A name from notifier
-                          (newName) => teamNameNotifier.setTeamAName(
-                            newName,
-                          ), // Callback to update team A name
-                          _teamAScores,
-                          appLocalizations,
-                          fontSizeNotifier.scoreFontSizeScale,
+                        // Team A Column
+                        Expanded(
+                          child: _buildTeamColumn(
+                            context,
+                            teamNameNotifier
+                                .teamAName, // Use team A name from notifier
+                            (newName) => teamNameNotifier.setTeamAName(
+                              newName,
+                            ), // Callback to update team A name
+                            _teamAScores,
+                            appLocalizations,
+                            fontSizeNotifier.scoreFontSizeScale,
+                          ),
                         ),
-                      ),
-                      // Spacer between columns
-                      const SizedBox(width: 16),
-                      // Team B Column
-                      Expanded(
-                        child: _buildTeamColumn(
-                          context,
-                          teamNameNotifier
-                              .teamBName, // Use team B name from notifier
-                          (newName) => teamNameNotifier.setTeamBName(
-                            newName,
-                          ), // Callback to update team B name
-                          _teamBScores,
-                          appLocalizations,
-                          fontSizeNotifier.scoreFontSizeScale,
+                        // Spacer between columns
+                        const SizedBox(width: 16),
+                        // Team B Column
+                        Expanded(
+                          child: _buildTeamColumn(
+                            context,
+                            teamNameNotifier
+                                .teamBName, // Use team B name from notifier
+                            (newName) => teamNameNotifier.setTeamBName(
+                              newName,
+                            ), // Callback to update team B name
+                            _teamBScores,
+                            appLocalizations,
+                            fontSizeNotifier.scoreFontSizeScale,
+                          ),
                         ),
-                      ),
                       ],
                     ),
                   ),
-                  //TODO: add banner ad /////////////////////////////////////////////////////
-                  // NEW: Add the banner ad
-                  if (_isBannerAdLoaded && _bannerAd != null)
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: SizedBox(
-                        width: _bannerAd!.size.width.toDouble(),
-                        height: _bannerAd!.size.height.toDouble(),
-                        child: AdWidget(ad: _bannerAd!),
-                      ),
-                    ),
+                  AnchoredAdaptiveBannerAd(adUnitId: _adUnitId),
                   const SizedBox(height: 8),
                 ],
               ),
@@ -543,16 +509,27 @@ class _GameScreenState extends State<GameScreen> {
     AppLocalizations appLocalizations,
     double scoreScale,
   ) {
+    final bool isTablet = MediaQuery.sizeOf(context).width >= 600;
     final double baseBody =
-        Theme.of(context).textTheme.bodyLarge?.fontSize ?? 16;
+        (Theme.of(context).textTheme.bodyLarge?.fontSize ?? 16) *
+        (isTablet ? 1.35 : 1.0);
     final double baseHeadline =
-        Theme.of(context).textTheme.headlineMedium?.fontSize ?? 20;
+        (Theme.of(context).textTheme.headlineMedium?.fontSize ?? 20) *
+        (isTablet ? 1.45 : 1.0);
+    final double actionButtonSize = isTablet ? 72.0 : 46.0;
+    final double actionIconSize = isTablet ? 38.0 : 24.0;
+    final double cardPadding = isTablet ? 20.0 : 12.0;
+    final double buttonSpacing = isTablet ? 18.0 : 12.0;
+    final double buttonRunSpacing = isTablet ? 14.0 : 8.0;
+
     return Card(
       elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      color: Theme.of(context).cardColor.withOpacity(0.9),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(isTablet ? 16 : 10),
+      ),
+      color: Theme.of(context).cardColor.withValues(alpha: 0.9),
       child: Padding(
-        padding: const EdgeInsets.all(12.0),
+        padding: EdgeInsets.all(cardPadding),
         child: Column(
           children: [
             GestureDetector(
@@ -566,13 +543,14 @@ class _GameScreenState extends State<GameScreen> {
                   ),
               child: Text(
                 teamName,
-                style:
-                    Theme.of(
-                      context,
-                    ).textTheme.headlineMedium, // Adapt text color and size
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontSize: baseHeadline,
+                  fontWeight: FontWeight.w700,
+                ), // Adapt text color and size
               ),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: isTablet ? 16 : 10),
             Expanded(
               child: ListView.builder(
                 itemCount: scores.length,
@@ -582,12 +560,9 @@ class _GameScreenState extends State<GameScreen> {
                     child: Text(
                       scores[index].toString(),
                       textAlign: TextAlign.center,
-                      style:
-                          Theme.of(
-                            context,
-                          ).textTheme.bodyLarge?.copyWith(
-                                fontSize: baseBody * scoreScale,
-                              ), // Adapt text color and size
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontSize: baseBody * scoreScale,
+                      ), // Adapt text color and size
                     ),
                   );
                 },
@@ -596,51 +571,62 @@ class _GameScreenState extends State<GameScreen> {
             const Divider(),
             Text(
               '${appLocalizations.total}: ${_getTotalScore(scores)}', // Localized "Total"
-              style:
-                  Theme.of(
-                    context,
-                  ).textTheme.headlineMedium?.copyWith(
-                        fontSize: baseHeadline * scoreScale,
-                      ), // Adapt text color and size
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontSize: baseHeadline * scoreScale,
+                fontWeight: FontWeight.w700,
+              ), // Adapt text color and size
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: isTablet ? 16 : 10),
             // Buttons for each team (remove, add, and bonus)
             Wrap(
               alignment: WrapAlignment.center,
-              spacing: 12,
-              runSpacing: 8,
+              spacing: buttonSpacing,
+              runSpacing: buttonRunSpacing,
               children: [
-                FloatingActionButton.small(
-                  heroTag:
-                      'remove_${teamName.replaceAll(' ', '')}Btn', // Unique tag
-                  onPressed: () => _removeLastScoreForTeam(scores),
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                  child: const Icon(Icons.remove),
+                SizedBox(
+                  width: actionButtonSize,
+                  height: actionButtonSize,
+                  child: FloatingActionButton(
+                    heroTag:
+                        'remove_${teamName.replaceAll(' ', '')}Btn', // Unique tag
+                    onPressed: () => _removeLastScoreForTeam(scores),
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    child: Icon(Icons.remove, size: actionIconSize),
+                  ),
                 ),
-                FloatingActionButton.small(
-                  heroTag:
-                      'add_${teamName.replaceAll(' ', '')}Btn', // Unique tag for add button
-                  onPressed:
-                      () => _showManualPointsDialog(
-                        context,
-                        scores,
-                        appLocalizations,
-                      ), // Call dialog for add
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  child: const Icon(Icons.add),
+                SizedBox(
+                  width: actionButtonSize,
+                  height: actionButtonSize,
+                  child: FloatingActionButton(
+                    heroTag:
+                        'add_${teamName.replaceAll(' ', '')}Btn', // Unique tag for add button
+                    onPressed:
+                        () => _showManualPointsDialog(
+                          context,
+                          scores,
+                          appLocalizations,
+                        ), // Call dialog for add
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    child: Icon(Icons.add, size: actionIconSize),
+                  ),
                 ),
-                FloatingActionButton.small(
-                  heroTag:
-                      'bonus_${teamName.replaceAll(' ', '')}Btn', // Unique tag
-                  onPressed:
-                      () => _addDefaultBonus(
-                        scores,
-                      ), // Directly add default bonus
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  child: const Icon(Icons.star), // Bonus icon
+                SizedBox(
+                  width: actionButtonSize,
+                  height: actionButtonSize,
+                  child: FloatingActionButton(
+                    heroTag:
+                        'bonus_${teamName.replaceAll(' ', '')}Btn', // Unique tag
+                    onPressed:
+                        () => _addDefaultBonus(
+                          scores,
+                        ), // Directly add default bonus
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    child: Icon(Icons.star, size: actionIconSize), // Bonus icon
+                  ),
                 ),
               ],
             ),
