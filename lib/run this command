@@ -1,0 +1,100 @@
+flutter gen-l10n
+flutter pub run build_runner build --delete-conflicting-outputs
+flutter build
+flutter run
+
+Here are a few common steps to try and resolve this:
+1.Flutter Clean & Pub Get:
+•Open your terminal in the root directory of your Flutter project.
+•Run flutter clean.
+•Then run flutter pub get again to ensure all dependencies are correctly
+ fetched and linked.
+
+2.Restart Android Studio: Sometimes, the IDE doesn't pick up changes correctly. A full restart can help.
+
+3.Invalidate Caches & Restart (Android Studio):
+•In Android Studio, go to File > Invalidate Caches / Restart....
+•Select Invalidate and Restart.If the problem persists after trying
+these steps, the next common culprit is the minSdkVersion.
+ Some packages require a minimum Android API level.Let's check your
+ android/app/build.gradle file. I'll read its content to see what minSdkVersion is set to.
+
+
+ /*
+ política de privacidad
+ politica sulla riservatezza
+política de Privacidade
+
+
+Enlace a la política de privacidad
+Collegamento all'informativa sulla privacy
+Link da Política de Privacidade
+
+
+Privacy Policy Overview
+
+Your privacy is important to us. Our mobile app is designed to respect your personal data. We do not store, sell, or share your personal data outside of your device. Any personal information stays securely on your phone and is used only to improve your experience with the app.
+
+However, we do use Google Analytics to understand general app usage and performance. This helps us improve the app, but it may involve Google collecting some usage data (such as device type, session duration, or features used). This data is anonymized where possible and is never used to personally identify you by us.
+
+We also use Google Ads to show relevant advertisements within the app. Google may use device information and ad interaction data to personalize ads, depending on your device settings and preferences.
+
+We do not sell or directly share your personal information with any third parties. All data collected through these services is handled by Google according to their privacy policies.
+
+For more information:
+
+Google’s Privacy Policy
+https://policies.google.com/privacy?utm_source=chatgpt.com
+
+How Google uses data in apps
+https://policies.google.com/technologies/partner-sites?utm_source=chatgpt.com
+
+
+🇮🇹 Informativa sulla Privacy (Italiano)
+
+La tua privacy è importante per noi. La nostra app mobile è progettata per rispettare i tuoi dati personali. Non memorizziamo, vendiamo o condividiamo i tuoi dati personali al di fuori del tuo dispositivo. Tutte le informazioni personali restano salvate in modo sicuro sul tuo telefono e vengono utilizzate solo per migliorare la tua esperienza con l'app.
+
+Tuttavia, utilizziamo Google Analytics per comprendere l'utilizzo generale dell'app e le sue prestazioni. Questo ci aiuta a migliorare l'app, ma può comportare la raccolta da parte di Google di alcuni dati di utilizzo (come tipo di dispositivo, durata della sessione o funzionalità utilizzate). Questi dati sono anonimizzati dove possibile e non vengono mai utilizzati da noi per identificarti personalmente.
+
+Utilizziamo anche Google Ads per mostrare annunci pertinenti all'interno dell'app. Google può utilizzare informazioni sul dispositivo e sui tuoi comportamenti con gli annunci per personalizzarli, in base alle impostazioni e preferenze del tuo dispositivo.
+
+Non vendiamo né condividiamo direttamente i tuoi dati personali con terze parti. Tutti i dati raccolti tramite questi servizi sono gestiti da Google secondo le loro politiche sulla privacy.
+
+Per maggiori informazioni:
+
+Informativa sulla Privacy di Google
+
+
+🇵🇹 Política de Privacidade (Português)
+
+A sua privacidade é importante para nós. Nosso aplicativo móvel foi desenvolvido para respeitar os seus dados pessoais. Não armazenamos, vendemos nem compartilhamos seus dados pessoais fora do seu dispositivo. Todas as informações pessoais permanecem seguras no seu celular e são usadas apenas para melhorar a sua experiência com o app.
+
+No entanto, utilizamos o Google Analytics para entender o uso geral do aplicativo e seu desempenho. Isso nos ajuda a melhorar o app, mas pode envolver a coleta de alguns dados de uso pelo Google (como tipo de dispositivo, duração da sessão ou funcionalidades utilizadas). Esses dados são anonimizados sempre que possível e nunca são usados por nós para identificar você pessoalmente.
+
+Também usamos Google Ads para exibir anúncios relevantes dentro do app. O Google pode usar informações do dispositivo e interações com anúncios para personalizá-los, dependendo das configurações e preferências do seu dispositivo.
+
+Não vendemos nem compartilhamos diretamente suas informações pessoais com terceiros. Todos os dados coletados por esses serviços são tratados pelo Google conforme as políticas de privacidade deles.
+
+Para mais informações:
+
+Política de Privacidade do Google
+
+Como o Google usa dados em apps
+
+
+🇪🇸 Política de Privacidad (Español)
+
+Tu privacidad es importante para nosotros. Nuestra app móvil está diseñada para respetar tus datos personales. No almacenamos, vendemos ni compartimos tu información personal fuera de tu dispositivo. Toda la información personal permanece de forma segura en tu teléfono y solo se usa para mejorar tu experiencia con la aplicación.
+
+Sin embargo, utilizamos Google Analytics para entender el uso general de la app y su rendimiento. Esto nos ayuda a mejorar la aplicación, pero puede implicar que Google recoja algunos datos de uso (como tipo de dispositivo, duración de la sesión o funciones utilizadas). Estos datos son anonimizados cuando es posible y nunca los usamos para identificarte personalmente.
+
+También usamos Google Ads para mostrar anuncios relevantes dentro de la app. Google puede usar información del dispositivo e interacciones con los anuncios para personalizarlos, según las configuraciones y preferencias de tu dispositivo.
+
+No vendemos ni compartimos directamente tu información personal con terceros. Todos los datos recopilados mediante estos servicios son gestionados por Google de acuerdo con sus políticas de privacidad.
+
+Para más información:
+
+Política de Privacidad de Google
+
+Cómo utiliza Google los datos en las aplicaciones
+ */

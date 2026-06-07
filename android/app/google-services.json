@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "374261583168",
+    "project_id": "kapi-dominos",
+    "storage_bucket": "kapi-dominos.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:374261583168:android:e181c523a4cd2cb5f4fea5",
+        "android_client_info": {
+          "package_name": "com.liisgo.kapi.note"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCeBsqNcTct5KHbOYpwEIhS62whGMbGgi8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
