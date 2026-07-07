@@ -1,7 +1,5 @@
-
 // lib/screens/splash_screen.dart
 import 'package:flutter/material.dart';
-import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -29,6 +27,7 @@ class _SplashScreenState extends State<SplashScreen> {
         final List<dynamic> decoded = jsonDecode(teamBJson);
         hasSavedScores = decoded.isNotEmpty;
       }
+      if (!mounted) return;
       Navigator.pushReplacementNamed(
         context,
         hasSavedScores ? '/game' : '/home',
@@ -46,10 +45,17 @@ class _SplashScreenState extends State<SplashScreen> {
           Container(
             decoration: BoxDecoration(
               image: DecorationImage(
-                image: const AssetImage('assets/image/splash.png'), // Updated to .png
+                image: const AssetImage(
+                  'assets/image/splash.png',
+                ), // Updated to .png
                 fit: BoxFit.cover, // Cover the entire container
                 colorFilter: ColorFilter.mode(
-                  Color.fromARGB((255 * 0.5).round(), 0, 0, 0), // Darker overlay
+                  Color.fromARGB(
+                    (255 * 0.5).round(),
+                    0,
+                    0,
+                    0,
+                  ), // Darker overlay
                   BlendMode.darken,
                 ),
               ),

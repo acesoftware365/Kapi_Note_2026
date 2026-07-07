@@ -9,6 +9,8 @@ import '../locale_notifier.dart'; // Import locale notifier
 import '../theme_notifier.dart'; // Import theme notifier
 import '../game_settings_notifier.dart'; // NEW: Import game settings notifier
 import '../font_size_notifier.dart'; // NEW: Import font size notifier
+import '../premium_notifier.dart';
+import '../services/subscription_management_service.dart';
 import 'about_screen.dart'; // NEW: Import the about screen
 import '../widgets/anchored_adaptive_banner_ad.dart';
 import '../widgets/app_footer.dart';
@@ -37,6 +39,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final themeNotifier = Provider.of<ThemeNotifier>(context);
     final gameSettingsNotifier = Provider.of<GameSettingsNotifier>(context);
     final fontSizeNotifier = Provider.of<FontSizeNotifier>(context);
+    final premiumNotifier = Provider.of<PremiumNotifier>(context);
+    final currentLocale =
+        localeNotifier.locale ??
+        _supportedLocaleFor(Localizations.localeOf(context));
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -44,23 +50,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const SizedBox.shrink(),
         automaticallyImplyLeading: false,
         leading: IconButton(
-          icon: const Icon(Icons.home_rounded),
-          tooltip: appLocalizations.homeScreenTitle,
-          onPressed: () {
-            Navigator.pushReplacementNamed(context, '/home');
-          },
+          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip:
+              Localizations.localeOf(context).languageCode == 'es'
+                  ? 'Volver'
+                  : 'Back',
+          onPressed: () => _goBack(context),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.note_rounded),
-            tooltip: appLocalizations.gameScreenTitle,
-            onPressed: () {
-              Navigator.pushReplacementNamed(context, '/game');
-            },
-          ),
-        ],
       ),
       body: Stack(
         children: [
@@ -132,7 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: SizedBox(
                               width: 150,
                               child: DropdownButton<Locale>(
-                                value: localeNotifier.locale,
+                                value: currentLocale,
                                 isExpanded: true,
                                 icon: Icon(
                                   Icons.arrow_drop_down,
@@ -495,8 +493,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: Text(appLocalizations.shareAppTitle),
                         subtitle: Text(appLocalizations.shareAppSubtitle),
                         onTap: () async {
-                          final String message =
-                              appLocalizations.shareAppMessage;
+                          final String message = _platformShareMessage(
+                            currentLocale.languageCode,
+                          );
                           final renderBox =
                               shareContext.findRenderObject() as RenderBox?;
                           try {
@@ -513,6 +512,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             debugPrint('Share failed: $e');
                           }
                         },
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  ListTile(
+                    leading: Icon(
+                      Icons.manage_accounts_rounded,
+                      color: Theme.of(context).iconTheme.color,
+                    ),
+                    title: Text(
+                      currentLocale.languageCode == 'es'
+                          ? 'Administrar o cancelar suscripción'
+                          : 'Manage or cancel subscription',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    subtitle: Text(
+                      currentLocale.languageCode == 'es'
+                          ? 'Abre ${_storeName()} para cambiar o cancelar Pro.'
+                          : 'Open ${_storeName()} to change or cancel Pro.',
+                    ),
+                    onTap: () async {
+                      final opened =
+                          await SubscriptionManagementService.openSubscriptionSettings(
+                            productId: premiumNotifier.activeProductId,
+                          );
+                      if (!context.mounted || opened) return;
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            currentLocale.languageCode == 'es'
+                                ? 'No pudimos abrir la página de suscripciones. Ábrela desde ${_storeName()}.'
+                                : 'We could not open subscription settings. Open it from ${_storeName()}.',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  ListTile(
+                    leading: Icon(
+                      Icons.privacy_tip_rounded,
+                      color: Theme.of(context).iconTheme.color,
+                    ),
+                    title: Text(
+                      'Terms & Privacy',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    subtitle: const Text(
+                      'View Terms & Conditions and Privacy Policy',
+                    ),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AboutScreen(),
+                        ),
                       );
                     },
                   ),
@@ -546,5 +602,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Locale _supportedLocaleFor(Locale locale) {
+    for (final supportedLocale in AppLocalizations.supportedLocales) {
+      if (supportedLocale.languageCode == locale.languageCode) {
+        return supportedLocale;
+      }
+    }
+    return const Locale('es');
+  }
+
+  String _storeName() {
+    return defaultTargetPlatform == TargetPlatform.iOS
+        ? 'App Store'
+        : 'Google Play';
+  }
+
+  void _goBack(BuildContext context) {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+      return;
+    }
+    Navigator.pushReplacementNamed(context, '/home');
+  }
+
+  String _platformShareMessage(String languageCode) {
+    final link =
+        defaultTargetPlatform == TargetPlatform.android
+            ? 'https://play.google.com/store/apps/details?id=com.liisgo.kapi.note'
+            : 'https://apps.apple.com/us/app/kapi-note/id6752557170';
+
+    return languageCode == 'es'
+        ? 'Prueba Kapi Note: la forma fácil de llevar los puntos del dominó. Descárgala aquí: $link'
+        : 'Try Kapi Note: the easy way to track domino scores. Download it here: $link';
   }
 }

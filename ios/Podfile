@@ -30,6 +30,8 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks!
 
+  pod 'TikTokBusinessSDK'
+
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
@@ -39,5 +41,12 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      flags = config.build_settings['OTHER_LDFLAGS'] || ['$(inherited)']
+      flags = [flags] if flags.is_a?(String)
+      flags << '-ObjC' unless flags.include?('-ObjC')
+      flags << '-lc++' unless flags.include?('-lc++')
+      config.build_settings['OTHER_LDFLAGS'] = flags
+    end
   end
 end

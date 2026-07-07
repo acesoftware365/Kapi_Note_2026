@@ -1,12 +1,14 @@
 // lib/screens/fireworks_screen.dart
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart'; // Import provider
 import '../font_size_notifier.dart';
-import 'dart:math';
-import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/review_prompt_service.dart';
 import 'game_screen.dart';
 
 // Particle class to represent individual particles (unchanged)
@@ -42,12 +44,17 @@ class FireworksPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (var particle in particles) {
-      final paint = Paint()
-        ..color = particle.color.withOpacity(particle.lifetime)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, particle.size / 4)
-        ..style = PaintingStyle.fill;
+      final paint =
+          Paint()
+            ..color = particle.color.withValues(alpha: particle.lifetime)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, particle.size / 4)
+            ..style = PaintingStyle.fill;
 
-      canvas.drawCircle(particle.position, particle.size * particle.lifetime, paint);
+      canvas.drawCircle(
+        particle.position,
+        particle.size * particle.lifetime,
+        paint,
+      );
     }
   }
 
@@ -66,11 +73,11 @@ class FireworksScreen extends StatefulWidget {
   State<FireworksScreen> createState() => _FireworksScreenState();
 }
 
-class _FireworksScreenState extends State<FireworksScreen> with TickerProviderStateMixin {
+class _FireworksScreenState extends State<FireworksScreen>
+    with TickerProviderStateMixin {
   late AnimationController _animationController;
   final List<Particle> _particles = [];
   final Random _random = Random();
-
 
   @override
   void initState() {
@@ -92,6 +99,10 @@ class _FireworksScreenState extends State<FireworksScreen> with TickerProviderSt
       if (mounted) {
         _resetGameNavigation();
       }
+    });
+
+    Future.delayed(const Duration(milliseconds: 900), () {
+      unawaited(ReviewPromptService.recordCompletedGameAndMaybeRequestReview());
     });
   }
 
@@ -119,9 +130,11 @@ class _FireworksScreenState extends State<FireworksScreen> with TickerProviderSt
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => const GameScreen()),
+      MaterialPageRoute(
+        settings: const RouteSettings(name: '/game'),
+        builder: (context) => const GameScreen(),
+      ),
     );
-
 
     //end of reset game navigation
     /*
@@ -131,9 +144,7 @@ class _FireworksScreenState extends State<FireworksScreen> with TickerProviderSt
     );
 
      */
-
   }
-
 
   void _generateInitialParticles(Size screenSize) {
     _particles.clear();
@@ -171,7 +182,10 @@ class _FireworksScreenState extends State<FireworksScreen> with TickerProviderSt
       _particles.removeWhere((particle) => particle.lifetime <= 0);
       for (var particle in _particles) {
         particle.update();
-        particle.velocity = Offset(particle.velocity.dx, particle.velocity.dy + 0.05);
+        particle.velocity = Offset(
+          particle.velocity.dx,
+          particle.velocity.dy + 0.05,
+        );
       }
     });
   }
@@ -221,7 +235,9 @@ class _FireworksScreenState extends State<FireworksScreen> with TickerProviderSt
                 children: [
                   Icon(
                     Icons.celebration,
-                    size: MediaQuery.of(context).textScaler.scale(100 * fontSizeNotifier.fontSizeScale),
+                    size: MediaQuery.of(
+                      context,
+                    ).textScaler.scale(100 * fontSizeNotifier.fontSizeScale),
                     color: Colors.yellowAccent,
                   ),
                   const SizedBox(height: 20),
@@ -229,7 +245,9 @@ class _FireworksScreenState extends State<FireworksScreen> with TickerProviderSt
                     '${widget.winningTeamName} ${appLocalizations.maxScoreReachedMessage}',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: MediaQuery.of(context).textScaler.scale(30 * fontSizeNotifier.fontSizeScale),
+                      fontSize: MediaQuery.of(
+                        context,
+                      ).textScaler.scale(30 * fontSizeNotifier.fontSizeScale),
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                       shadows: const [
@@ -249,7 +267,10 @@ class _FireworksScreenState extends State<FireworksScreen> with TickerProviderSt
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 30,
+                        vertical: 15,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),

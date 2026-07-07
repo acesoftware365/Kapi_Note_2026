@@ -1,9 +1,11 @@
 // lib/screens/game_screen.dart
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:dominoes_note2025/screens/team_name_notifier.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
 // Import generated localizations
 import 'package:provider/provider.dart'; // Import provider
 import 'package:flutter/foundation.dart'; // NEW: Import for defaultTargetPlatform
@@ -11,10 +13,11 @@ import 'package:flutter/foundation.dart'; // NEW: Import for defaultTargetPlatfo
 import '../game_settings_notifier.dart'; // Import game settings notifier
 import '../font_size_notifier.dart';
 import '../l10n/app_localizations.dart';
+import '../services/analytics_service.dart';
 import '../widgets/anchored_adaptive_banner_ad.dart';
+import '../widgets/app_version_label.dart';
 import 'admob_variable.dart';
 import 'fireworks_screen.dart'; // I// Import font size notifier
-import 'settings_screen.dart'; // Imp // Import team name notifier
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
@@ -182,9 +185,6 @@ class _GameScreenState extends State<GameScreen> {
                   //if point enter is more than 200 point
                   if (int.tryParse(pointsController.text) != null &&
                       int.tryParse(pointsController.text)! > 200) {
-                    print(
-                      "point enter is more than 200 point/////////////////////////////////////////////",
-                    );
                     // Show error dialog
                     showDialog<void>(
                       context:
@@ -213,9 +213,6 @@ class _GameScreenState extends State<GameScreen> {
                     //end show error dialog
                     //end if point enter is more less 200 point and not null
                   } else {
-                    print(
-                      "point enter is less than 200 point/////////////////////////////////////////////////",
-                    );
                     // Add the entered points to the list
                     int? points = int.tryParse(pointsController.text);
                     if (points != null) {
@@ -305,9 +302,19 @@ class _GameScreenState extends State<GameScreen> {
       );
 
       if (goFireworks == true) {
+        if (!mounted) return;
+        unawaited(
+          AnalyticsService.logGameCompleted(
+            winningTeamName: winningTeamName,
+            teamATotal: totalA,
+            teamBTotal: totalB,
+            maxScore: maxScore,
+          ),
+        );
         Navigator.push(
           context,
           MaterialPageRoute(
+            settings: const RouteSettings(name: '/fireworks'),
             builder:
                 (context) => FireworksScreen(winningTeamName: winningTeamName),
           ),
@@ -324,6 +331,7 @@ class _GameScreenState extends State<GameScreen> {
       _teamAScores.clear();
       _teamBScores.clear();
     });
+    unawaited(AnalyticsService.logGameReset());
     _saveScores();
   }
 
@@ -388,31 +396,86 @@ class _GameScreenState extends State<GameScreen> {
     final AppLocalizations appLocalizations = AppLocalizations.of(context)!;
     final teamNameNotifier = Provider.of<TeamNameNotifier>(context);
     final fontSizeNotifier = Provider.of<FontSizeNotifier>(context);
+    final routeArguments = ModalRoute.of(context)?.settings.arguments;
+    final openedFromDominoGame =
+        routeArguments is Map && routeArguments['fromDominoGame'] == true;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const SizedBox.shrink(),
+        title: Center(
+          child:
+              openedFromDominoGame
+                  ? FilledButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.sports_esports_rounded, size: 18),
+                    label: Text(
+                      Localizations.localeOf(context).languageCode == 'es'
+                          ? 'Volver al juego'
+                          : 'Back to game',
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFE53935),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 9,
+                      ),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                  )
+                  : const SizedBox.shrink(),
+        ),
+        centerTitle: true,
         automaticallyImplyLeading: false,
         backgroundColor: Colors.transparent,
         elevation: 0,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: Icon(
+            openedFromDominoGame
+                ? Icons.arrow_back_rounded
+                : Icons.home_rounded,
+          ),
+          tooltip:
+              openedFromDominoGame
+                  ? 'Back to game'
+                  : appLocalizations.homeScreenTitle,
+          onPressed: () {
+            if (openedFromDominoGame) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacementNamed(context, '/home');
+            }
+          },
+        ),
         actions: [
+          // Reset Game Button in AppBar
+          TextButton.icon(
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Reset'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              textStyle: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+            onPressed: _resetGame,
+          ),
           // Settings Button in AppBar
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: appLocalizations.settingsButton, // Use localized tooltip
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsScreen()),
-              );
+              Navigator.pushNamed(context, '/settings');
             },
-          ),
-          // Reset Game Button in AppBar
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: appLocalizations.resetGame,
-            onPressed: _resetGame,
           ),
         ],
         // AppBar color will adapt based on theme
@@ -491,7 +554,10 @@ class _GameScreenState extends State<GameScreen> {
                     ),
                   ),
                   AnchoredAdaptiveBannerAd(adUnitId: _adUnitId),
-                  const SizedBox(height: 8),
+                  const AppVersionLabel(
+                    padding: EdgeInsets.only(top: 5, bottom: 3),
+                    fontSize: 10,
+                  ),
                 ],
               ),
             ),
@@ -516,11 +582,32 @@ class _GameScreenState extends State<GameScreen> {
     final double baseHeadline =
         (Theme.of(context).textTheme.headlineMedium?.fontSize ?? 20) *
         (isTablet ? 1.45 : 1.0);
-    final double actionButtonSize = isTablet ? 72.0 : 46.0;
-    final double actionIconSize = isTablet ? 38.0 : 24.0;
-    final double cardPadding = isTablet ? 20.0 : 12.0;
-    final double buttonSpacing = isTablet ? 18.0 : 12.0;
-    final double buttonRunSpacing = isTablet ? 14.0 : 8.0;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final bool compactPhone = !isTablet && screenWidth < 480;
+    final double actionButtonSize =
+        isTablet
+            ? 72.0
+            : compactPhone
+            ? 38.0
+            : 46.0;
+    final double actionIconSize =
+        isTablet
+            ? 38.0
+            : compactPhone
+            ? 22.0
+            : 24.0;
+    final double cardPadding =
+        isTablet
+            ? 20.0
+            : compactPhone
+            ? 9.0
+            : 12.0;
+    final double buttonSpacing =
+        isTablet
+            ? 18.0
+            : compactPhone
+            ? 7.0
+            : 12.0;
 
     return Card(
       elevation: 4,
@@ -579,10 +666,8 @@ class _GameScreenState extends State<GameScreen> {
             ),
             SizedBox(height: isTablet ? 16 : 10),
             // Buttons for each team (remove, add, and bonus)
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: buttonSpacing,
-              runSpacing: buttonRunSpacing,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 SizedBox(
                   width: actionButtonSize,
@@ -596,6 +681,7 @@ class _GameScreenState extends State<GameScreen> {
                     child: Icon(Icons.remove, size: actionIconSize),
                   ),
                 ),
+                SizedBox(width: buttonSpacing),
                 SizedBox(
                   width: actionButtonSize,
                   height: actionButtonSize,
@@ -613,6 +699,7 @@ class _GameScreenState extends State<GameScreen> {
                     child: Icon(Icons.add, size: actionIconSize),
                   ),
                 ),
+                SizedBox(width: buttonSpacing),
                 SizedBox(
                   width: actionButtonSize,
                   height: actionButtonSize,

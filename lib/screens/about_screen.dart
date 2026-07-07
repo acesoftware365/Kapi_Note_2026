@@ -1,8 +1,9 @@
 // lib/screens/about_screen.dart
 import 'package:flutter/material.dart'; // Import generated localizations
 import 'package:package_info_plus/package_info_plus.dart';
+import '../legal/legal_content.dart';
 import '../l10n/app_localizations.dart';
-import '../url_link/link_button.dart'; // Import font size notifier
+import '../url_link/link_button.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -73,91 +74,27 @@ class AboutScreen extends StatelessWidget {
               padding: const EdgeInsets.all(24.0),
               child: Column(
                 children: [
-                  //Privacy card ////////////////////////////////////////////////////////////////////////
-                  Card(
-                    elevation: 8,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    color: Theme.of(context).cardColor.withOpacity(
-                      0.9,
-                    ), // Card background adapts to theme with slight transparency
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min, // Wrap content
-                        children: [
-                          Text(
-                            appLocalizations.privacyPolicy,
-                            textAlign: TextAlign.center,
-                            style:
-                                Theme.of(context)
-                                    .textTheme
-                                    .headlineLarge, // Adapt text color and size
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            appLocalizations.privacyPolicyTitle,
-                            textAlign: TextAlign.center,
-                            style:
-                                Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium, // Adapt text color and size
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            appLocalizations.privacyPolicyDescription,
-                            textAlign: TextAlign.center,
-                            style:
-                                Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium, // Adapt text color and size
-                          ),
-                          const SizedBox(height: 10),
-
-                          ///TODO: add privacy policy button for link
-                          Text(
-                            appLocalizations.privacyGoogleLink,
-                            textAlign: TextAlign.center,
-                            style:
-                                Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium, // Adapt text color and size
-                          ),
-                          LinkButton(
-                            text: appLocalizations.privacyGoogleLink,
-                            url:
-                                'https://policies.google.com/privacy?utm_source=chatgpt.com',
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            appLocalizations.privacyGoogleUseDataInApps,
-                            textAlign: TextAlign.center,
-                            style:
-                                Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium, // Adapt text color and size
-                          ),
-                          LinkButton(
-                            text: appLocalizations.privacyGoogleUseDataInApps,
-                            url:
-                                'https://policies.google.com/technologies/partner-sites?utm_source=chatgpt.com',
-                          ),
-                          const SizedBox(height: 30),
-                        ],
-                      ),
-                    ),
+                  _buildLegalCard(
+                    context,
+                    title: LegalContent.termsTitle,
+                    icon: Icons.description_rounded,
+                    body: LegalContent.termsBody,
+                  ),
+                  const SizedBox(height: 20),
+                  _buildLegalCard(
+                    context,
+                    title: LegalContent.privacyTitle,
+                    icon: Icons.lock_rounded,
+                    body: LegalContent.privacyBody,
                   ),
                   const SizedBox(height: 30),
-                  // About card
-                  const SizedBox(height: 20),
                   Card(
                     elevation: 8,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(15),
                     ),
-                    color: Theme.of(context).cardColor.withOpacity(
-                      0.9,
+                    color: Theme.of(context).cardColor.withValues(
+                      alpha: 0.9,
                     ), // Card background adapts to theme with slight transparency
                     child: Padding(
                       padding: const EdgeInsets.all(24.0),
@@ -194,7 +131,7 @@ class AboutScreen extends StatelessWidget {
                           const SizedBox(height: 30),
                           LinkButton(
                             text: "www.liisgo.com".toUpperCase(),
-                            url: 'https:www.liisgo.com',
+                            url: 'https://www.liisgo.com',
                           ),
                           Text(
                             "LIISGO LLC",
@@ -231,6 +168,44 @@ class AboutScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLegalCard(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required String body,
+  }) {
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      color: Theme.of(context).cardColor.withValues(alpha: 0.9),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 34, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              body,
+              textAlign: TextAlign.start,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(height: 1.45),
+            ),
+          ],
+        ),
       ),
     );
   }

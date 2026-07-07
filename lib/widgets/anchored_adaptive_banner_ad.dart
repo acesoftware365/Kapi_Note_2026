@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:provider/provider.dart';
+
+import '../premium_notifier.dart';
 
 class AnchoredAdaptiveBannerAd extends StatefulWidget {
   const AnchoredAdaptiveBannerAd({
@@ -28,6 +31,12 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final premiumNotifier = context.watch<PremiumNotifier>();
+    if (premiumNotifier.isPremium) {
+      _disposeCurrentAd();
+      return;
+    }
+
     _loadAdForCurrentWidth();
   }
 
@@ -107,12 +116,25 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
 
   @override
   void dispose() {
-    _bannerAd?.dispose();
+    _disposeCurrentAd();
     super.dispose();
+  }
+
+  void _disposeCurrentAd() {
+    _bannerAd?.dispose();
+    _bannerAd = null;
+    _adSize = null;
+    _isLoaded = false;
+    _isLoading = false;
   }
 
   @override
   Widget build(BuildContext context) {
+    final premiumNotifier = context.watch<PremiumNotifier>();
+    if (premiumNotifier.isPremium) {
+      return const SizedBox.shrink();
+    }
+
     final bannerAd = _bannerAd;
     final adSize = _adSize;
 

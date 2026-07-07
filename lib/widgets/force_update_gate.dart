@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -16,13 +17,14 @@ class ForceUpdateGate extends StatefulWidget {
 }
 
 class _ForceUpdateGateState extends State<ForceUpdateGate> {
-  static const String _minVersion = '5.0.0';
-  static const String _androidUrl =
+  static const String _defaultMinimumVersion = '5.0.0';
+  static const String _defaultAndroidUrl =
       'https://play.google.com/store/apps/details?id=com.liisgo.kapi.note&hl=en_US';
-  static const String _iosUrl =
+  static const String _defaultIosUrl =
       'https://apps.apple.com/us/app/kapi-note/id6752557170';
 
   bool? _needsUpdate;
+  String _storeUrl = Platform.isIOS ? _defaultIosUrl : _defaultAndroidUrl;
 
   @override
   void initState() {
@@ -32,10 +34,49 @@ class _ForceUpdateGateState extends State<ForceUpdateGate> {
 
   Future<void> _checkVersion() async {
     final info = await PackageInfo.fromPlatform();
-    final bool needsUpdate = _isLowerVersion(info.version, _minVersion);
+    final remoteConfig = FirebaseRemoteConfig.instance;
+    String minimumVersion = _defaultMinimumVersion;
+    String storeUrl = Platform.isIOS ? _defaultIosUrl : _defaultAndroidUrl;
+
+    try {
+      await remoteConfig.setConfigSettings(
+        RemoteConfigSettings(
+          fetchTimeout: const Duration(seconds: 10),
+          minimumFetchInterval: const Duration(hours: 1),
+        ),
+      );
+      await remoteConfig.setDefaults(const {
+        'minimum_android_version': _defaultMinimumVersion,
+        'minimum_ios_version': _defaultMinimumVersion,
+        'android_store_url': _defaultAndroidUrl,
+        'ios_store_url': _defaultIosUrl,
+      });
+      await remoteConfig.fetchAndActivate();
+
+      minimumVersion =
+          Platform.isIOS
+              ? remoteConfig.getString('minimum_ios_version')
+              : remoteConfig.getString('minimum_android_version');
+      storeUrl =
+          Platform.isIOS
+              ? remoteConfig.getString('ios_store_url')
+              : remoteConfig.getString('android_store_url');
+    } catch (_) {
+      minimumVersion = _defaultMinimumVersion;
+    }
+
+    if (minimumVersion.trim().isEmpty) {
+      minimumVersion = _defaultMinimumVersion;
+    }
+    if (storeUrl.trim().isEmpty) {
+      storeUrl = Platform.isIOS ? _defaultIosUrl : _defaultAndroidUrl;
+    }
+
+    final bool needsUpdate = _isLowerVersion(info.version, minimumVersion);
     if (mounted) {
       setState(() {
         _needsUpdate = needsUpdate;
+        _storeUrl = storeUrl;
       });
     }
   }
@@ -55,7 +96,7 @@ class _ForceUpdateGateState extends State<ForceUpdateGate> {
   }
 
   Future<void> _openStore() async {
-    final Uri uri = Uri.parse(Platform.isIOS ? _iosUrl : _androidUrl);
+    final Uri uri = Uri.parse(_storeUrl);
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
@@ -72,7 +113,7 @@ class _ForceUpdateGateState extends State<ForceUpdateGate> {
         widget.child,
         Positioned.fill(
           child: Container(
-            color: Colors.black.withOpacity(0.7),
+            color: Colors.black.withValues(alpha: 0.7),
             alignment: Alignment.center,
             child: Padding(
               padding: const EdgeInsets.all(24.0),

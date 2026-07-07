@@ -56,11 +56,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBzvYkoAjPEd6gzpd7Pf5KNkGgSF_DcZfI',
-    appId: '1:374261583168:ios:1d0797f1c43d33f3f4fea5',
+    appId: '1:374261583168:ios:97c19b100aaa90e0f4fea5',
     messagingSenderId: '374261583168',
     projectId: 'kapi-dominos',
     storageBucket: 'kapi-dominos.firebasestorage.app',
-    iosBundleId: 'com.example.dominoesNote2025',
+    iosBundleId: 'com.liisgo.kapi.note',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
@@ -73,6 +73,3 @@ class DefaultFirebaseOptions {
     measurementId: 'G-PDDGWDFQXC',
   );
 }
-
-
-
