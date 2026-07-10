@@ -521,3 +521,12 @@ Plan tecnico pendiente para hacerlo real:
 - Al continuar desde Game Mode se muestran temporalmente ambas opciones para compararlas.
 - El lobby simple prioriza tres decisiones grandes: buscar jugador, invitar amigo o jugar contra CPU.
 - No eliminar el lobby actual hasta que el usuario apruebe el nuevo flujo completo.
+## Lobby Block online (2026-07-10)
+
+- El ID que se comparte o se escribe para invitar es solo el codigo final de 6 caracteres, por ejemplo `TGHIDU`.
+- `Find a player` usa una cola real de Firebase y conecta dos jugadores que esten buscando al mismo tiempo a una sola partida.
+- Las invitaciones directas permiten elegir un amigo online o escribir su codigo de 6 caracteres.
+- La lista de amigos se muestra en una pantalla separada, dividida entre Online y Offline.
+- Las tarjetas del lobby muestran iniciales, pais y marco visual segun el ranking.
+- El lobby nuevo conserva anuncio adaptable y muestra la version debajo del anuncio.
+- El lobby anterior se mantiene separado como respaldo; los cambios nuevos viven en `screens/simple_lobby` y el servicio de emparejamiento en `services/block_matchmaking_service.dart`.

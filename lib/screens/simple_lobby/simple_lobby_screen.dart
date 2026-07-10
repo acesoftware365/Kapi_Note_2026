@@ -1,10 +1,18 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../services/block_matchmaking_service.dart';
+import '../../widgets/anchored_adaptive_banner_ad.dart';
+import '../../widgets/app_version_label.dart';
+import '../admob_variable.dart';
+import '../domino_online_game_screen.dart';
 import '../domino_player_profile.dart';
+import 'simple_friends_screen.dart';
 
 class SimpleLobbyScreen extends StatefulWidget {
   const SimpleLobbyScreen({super.key});
@@ -14,16 +22,43 @@ class SimpleLobbyScreen extends StatefulWidget {
 }
 
 class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
   DominoPlayerProfile? _profile;
   int _points = 0;
   bool _searching = false;
+  bool _openingGame = false;
+  Timer? _presenceTimer;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _matchSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _inviteSubscription;
+  String? _shownInviteId;
+
+  late final BlockMatchmakingService _matchmaking = BlockMatchmakingService(
+    _db,
+  );
 
   bool get _isSpanish => Localizations.localeOf(context).languageCode == 'es';
+  String get _adUnitId =>
+      defaultTargetPlatform == TargetPlatform.android
+          ? AdmobVariable.bannerAndroidUnit
+          : AdmobVariable.bannerIosUnit;
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadProfile());
+  }
+
+  @override
+  void dispose() {
+    _presenceTimer?.cancel();
+    unawaited(_matchSubscription?.cancel());
+    unawaited(_inviteSubscription?.cancel());
+    final profile = _profile;
+    if (_searching && profile != null) {
+      unawaited(_matchmaking.cancel(profile.publicId));
+    }
+    super.dispose();
   }
 
   Future<void> _loadProfile() async {
@@ -36,6 +71,60 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       _profile = profile;
       _points = points;
     });
+    await _upsertPresence(profile);
+    _presenceTimer = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) => unawaited(_upsertPresence(profile)),
+    );
+    _listenForInvites(profile);
+    const autoMatch = bool.fromEnvironment('KAPI_AUTO_MATCH');
+    if (autoMatch) unawaited(_startMatchmaking());
+  }
+
+  Future<void> _upsertPresence(DominoPlayerProfile profile) async {
+    final tier = DominoTierVisual.fromScore(_points);
+    final batch = _db.batch();
+    batch.set(
+      _db.collection('kapi_lobby_profiles').doc(profile.publicId),
+      {
+        'publicId': profile.publicId,
+        'initials': profile.initials,
+        'countryCode': profile.countryCode,
+        'code': profile.code,
+        'avatarKey': profile.avatarKey,
+        'rank': tier.label,
+        'totalPoints': _points,
+        'status': 'online',
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    batch.set(
+      _db.collection('kapi_lobby_codes').doc(profile.code),
+      {
+        'code': profile.code,
+        'publicId': profile.publicId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+  }
+
+  void _listenForInvites(DominoPlayerProfile profile) {
+    _inviteSubscription = _db
+        .collection('kapi_game_invites')
+        .where('toId', isEqualTo: profile.publicId.toUpperCase())
+        .snapshots()
+        .listen((snapshot) {
+          for (final doc in snapshot.docs) {
+            if (doc.data()['status'] == 'pending' && doc.id != _shownInviteId) {
+              _shownInviteId = doc.id;
+              unawaited(_showIncomingInvite(doc));
+              break;
+            }
+          }
+        });
   }
 
   @override
@@ -90,6 +179,11 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
                   ),
                 ),
               ),
+              AnchoredAdaptiveBannerAd(
+                adUnitId: _adUnitId,
+                margin: EdgeInsets.zero,
+              ),
+              const AppVersionLabel(padding: EdgeInsets.symmetric(vertical: 5)),
             ],
           ),
         ),
@@ -109,7 +203,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
           ),
           Expanded(
             child: Text(
-              _isSpanish ? 'Lobby simple' : 'Simple Lobby',
+              _isSpanish ? 'Lobby de Block' : 'Block Lobby',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
@@ -118,24 +212,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
               ),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFD36B).withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: const Color(0xFFFFD36B).withValues(alpha: 0.55),
-              ),
-            ),
-            child: const Text(
-              'PREVIEW',
-              style: TextStyle(
-                color: Color(0xFFFFD36B),
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
+          const SizedBox(width: 48),
         ],
       ),
     );
@@ -178,7 +255,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
             child: _PlayerSlot(
               icon: profile.icon,
               initials: profile.initials,
-              subtitle: tier.label,
+              subtitle: '${_countryLabel(profile.countryCode)} · ${tier.label}',
               color: tier.avatarBackground(profile.color),
               borderColor: tier.frameColor(),
             ),
@@ -224,7 +301,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
                     ? 'Conectar con alguien disponible'
                     : 'Connect with someone available',
             primary: true,
-            onTap: () => setState(() => _searching = true),
+            onTap: _startMatchmaking,
           ),
           const SizedBox(height: 12),
           _LobbyChoiceButton(
@@ -290,7 +367,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
             width: double.infinity,
             height: 52,
             child: OutlinedButton.icon(
-              onPressed: () => setState(() => _searching = false),
+              onPressed: _cancelMatchmaking,
               icon: const Icon(Icons.close_rounded),
               label: Text(_isSpanish ? 'Cancelar búsqueda' : 'Cancel search'),
               style: OutlinedButton.styleFrom(
@@ -306,6 +383,183 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       ),
     );
   }
+
+  Future<void> _startMatchmaking() async {
+    final profile = _profile;
+    if (profile == null || _searching) return;
+    setState(() => _searching = true);
+    await _matchSubscription?.cancel();
+    _matchSubscription = _matchmaking.watch(profile.publicId).listen((doc) {
+      final data = doc.data();
+      if (data?['status'] == 'matched') {
+        final gameId = data?['gameId'] as String?;
+        if (gameId != null && gameId.isNotEmpty) {
+          unawaited(_openOnlineGame(gameId));
+        }
+      }
+    });
+    try {
+      await _matchmaking.start(profile: profile, points: _points);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _searching = false);
+      _showMessage(error.toString());
+    }
+  }
+
+  Future<void> _cancelMatchmaking() async {
+    final profile = _profile;
+    if (profile != null) await _matchmaking.cancel(profile.publicId);
+    if (!mounted) return;
+    setState(() => _searching = false);
+  }
+
+  Future<void> _openOnlineGame(String gameId) async {
+    if (_openingGame || !mounted) return;
+    _openingGame = true;
+    setState(() => _searching = false);
+    await Navigator.pushNamed(
+      context,
+      '/domino-online',
+      arguments: {
+        'gameId': gameId,
+        'playerId': _profile!.publicId.toUpperCase(),
+      },
+    );
+    _openingGame = false;
+  }
+
+  Future<void> _showIncomingInvite(
+    QueryDocumentSnapshot<Map<String, dynamic>> invite,
+  ) async {
+    if (!mounted) return;
+    final data = invite.data();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text(_isSpanish ? 'Invitacion para jugar' : 'Game invite'),
+            content: Text(
+              _isSpanish
+                  ? '${data['fromInitials'] ?? 'Un amigo'} quiere jugar Block Dominoes contigo.'
+                  : '${data['fromInitials'] ?? 'A friend'} wants to play Block Dominoes with you.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(_isSpanish ? 'Rechazar' : 'Decline'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(_isSpanish ? 'Aceptar' : 'Accept'),
+              ),
+            ],
+          ),
+    );
+    await invite.reference.set({
+      'status': accepted == true ? 'accepted' : 'rejected',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    if (accepted == true) {
+      await _openOnlineGame(data['gameId'] as String);
+    }
+  }
+
+  Future<String?> _resolveCode(String raw) async {
+    final code = raw.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    if (!RegExp(r'^[A-NP-Z1-9]{6}$').hasMatch(code)) {
+      _showMessage(
+        _isSpanish
+            ? 'Escribe los 6 caracteres, sin cero ni letra O.'
+            : 'Enter all 6 characters, without zero or the letter O.',
+      );
+      return null;
+    }
+    final doc = await _db.collection('kapi_lobby_codes').doc(code).get();
+    return doc.data()?['publicId'] as String?;
+  }
+
+  Future<void> _inviteByCode() async {
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text(_isSpanish ? 'ID del jugador' : 'Player ID'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              maxLength: 6,
+              decoration: const InputDecoration(hintText: 'TGHIDU'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, controller.text),
+                child: Text(_isSpanish ? 'Invitar' : 'Invite'),
+              ),
+            ],
+          ),
+    );
+    controller.dispose();
+    if (code == null) return;
+    final playerId = await _resolveCode(code);
+    if (playerId == null) {
+      _showMessage(_isSpanish ? 'Jugador no encontrado.' : 'Player not found.');
+      return;
+    }
+    await _invitePlayer(playerId);
+  }
+
+  Future<void> _invitePlayer(String playerId) async {
+    final profile = _profile!;
+    if (playerId.toUpperCase() == profile.publicId.toUpperCase()) return;
+    final playerDoc =
+        await _db.collection('kapi_lobby_profiles').doc(playerId).get();
+    final initials = playerDoc.data()?['initials'] as String? ?? 'P2';
+    final gameId = await OnlineGameFactory.createClassicGame(
+      db: _db,
+      host: profile,
+      guestId: playerId,
+      guestInitials: initials,
+    );
+    await _db.collection('kapi_game_invites').add({
+      'fromId': profile.publicId.toUpperCase(),
+      'toId': playerId.toUpperCase(),
+      'mode': 'block',
+      'status': 'pending',
+      'gameId': gameId,
+      'fromInitials': profile.initials,
+      'toInitials': initials,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    _showMessage(_isSpanish ? 'Invitacion enviada.' : 'Invite sent.');
+    await _openOnlineGame(gameId);
+  }
+
+  Future<void> _openFriends() async {
+    final friend = await Navigator.push<SimpleLobbyFriend>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SimpleFriendsScreen(profile: _profile!),
+      ),
+    );
+    if (friend != null) await _invitePlayer(friend.publicId);
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  String _countryLabel(String code) => code == 'US' ? 'USA' : code;
 
   Future<void> _showInviteChoices(DominoPlayerProfile profile) async {
     await showModalBottomSheet<void>(
@@ -339,7 +593,19 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
                             : 'Choose an online friend',
                     onTap: () {
                       Navigator.pop(context);
-                      Navigator.pushNamed(context, '/lobby');
+                      unawaited(_openFriends());
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _SheetAction(
+                    icon: Icons.tag_rounded,
+                    title:
+                        _isSpanish
+                            ? 'Entrar ID de 6 caracteres'
+                            : 'Enter 6-character ID',
+                    onTap: () {
+                      Navigator.pop(context);
+                      unawaited(_inviteByCode());
                     },
                   ),
                   const SizedBox(height: 10),
@@ -350,8 +616,8 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
                       Navigator.pop(context);
                       await Share.share(
                         _isSpanish
-                            ? 'Juega Block Dominoes conmigo en Kapi Note. Mi ID es ${profile.publicId.toUpperCase()}.'
-                            : 'Play Block Dominoes with me in Kapi Note. My ID is ${profile.publicId.toUpperCase()}.',
+                            ? 'Juega Block Dominoes conmigo en Kapi Note. Mi ID es ${profile.code.toUpperCase()}.'
+                            : 'Play Block Dominoes with me in Kapi Note. My ID is ${profile.code.toUpperCase()}.',
                       );
                     },
                   ),

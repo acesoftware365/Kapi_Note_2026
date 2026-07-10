@@ -26,6 +26,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /kapi_block_matchmaking/{playerId} {
+      allow read, write: if true;
+    }
+
     match /kapi_player_points/{playerCode} {
       allow read, write: if true;
     }
