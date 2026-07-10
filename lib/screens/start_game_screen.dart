@@ -1679,7 +1679,156 @@ class _StartGameScreenState extends State<StartGameScreen> {
       return;
     }
 
-    Navigator.pushNamed(context, '/lobby');
+    await _showLobbyFlowChooser();
+  }
+
+  Future<void> _showLobbyFlowChooser() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF101820),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder:
+          (sheetContext) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _isSpanish ? 'Elige el lobby' : 'Choose a lobby',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _buildLobbyFlowOption(
+                    context: sheetContext,
+                    icon: Icons.groups_rounded,
+                    title: _isSpanish ? 'Lobby actual' : 'Current lobby',
+                    subtitle:
+                        _isSpanish
+                            ? 'Mantiene todas las opciones sociales actuales'
+                            : 'Keeps all current social options',
+                    route: '/lobby',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildLobbyFlowOption(
+                    context: sheetContext,
+                    icon: Icons.touch_app_rounded,
+                    title:
+                        _isSpanish ? 'Nuevo lobby simple' : 'New simple lobby',
+                    subtitle:
+                        _isSpanish
+                            ? 'Buscar, invitar o jugar CPU en tres botones'
+                            : 'Find, invite, or play CPU with three buttons',
+                    route: '/simple-lobby',
+                    recommended: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
+  }
+
+  Widget _buildLobbyFlowOption({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String route,
+    bool recommended = false,
+  }) {
+    return Material(
+      color:
+          recommended
+              ? const Color(0xFFE53935)
+              : Colors.white.withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.pushNamed(this.context, route);
+        },
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color:
+                  recommended
+                      ? const Color(0xFFFFD36B)
+                      : Colors.white.withValues(alpha: 0.18),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 34),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (recommended) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD36B),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              _isSpanish ? 'RECOMENDADO' : 'RECOMMENDED',
+                              style: const TextStyle(
+                                color: Color(0xFF101820),
+                                fontSize: 8,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Colors.white),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<bool> _confirmResetPausedGame() async {

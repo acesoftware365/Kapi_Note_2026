@@ -513,3 +513,11 @@ Plan tecnico pendiente para hacerlo real:
 - El lobby no debe usar `Bronze` como valor predeterminado cuando falta el campo `rank` del perfil social.
 - El rango de cada amigo se calcula desde `kapi_player_points.totalPoints`, la misma fuente usada por Player Ranking.
 - Umbrales compartidos: Iron 0-99, Bronze 100-249, Silver 250-499, Gold 500-899 y Platinum desde 900.
+
+## Comparacion de lobby actual y lobby simple 2026-07-10
+
+- La version actual del lobby queda preservada en `/lobby`.
+- El nuevo flujo simplificado vive separado en `/simple-lobby` y se identifica como Preview mientras se evalua.
+- Al continuar desde Game Mode se muestran temporalmente ambas opciones para compararlas.
+- El lobby simple prioriza tres decisiones grandes: buscar jugador, invitar amigo o jugar contra CPU.
+- No eliminar el lobby actual hasta que el usuario apruebe el nuevo flujo completo.

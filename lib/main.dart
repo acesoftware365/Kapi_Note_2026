@@ -24,6 +24,7 @@ import 'screens/block_dominoes/block_domino_game_screen.dart';
 import 'screens/domino_cpu_game_screen.dart' hide ClassicDominoGameScreen;
 import 'screens/domino_online_game_screen.dart';
 import 'screens/lobby_screen.dart';
+import 'screens/simple_lobby/simple_lobby_screen.dart';
 import 'locale_notifier.dart';
 import 'theme_notifier.dart';
 import 'game_settings_notifier.dart';
@@ -118,6 +119,8 @@ class DominoApp extends StatelessWidget {
           return const RankingScreen();
         case '/lobby':
           return const LobbyScreen();
+        case '/simple-lobby':
+          return const SimpleLobbyScreen();
         case '/domino-classic':
         case '/domino-block':
           return const ClassicDominoGameScreen();
@@ -270,6 +273,7 @@ class DominoApp extends StatelessWidget {
         '/start-game': (context) => const StartGameScreen(),
         '/ranking': (context) => const RankingScreen(),
         '/lobby': (context) => const LobbyScreen(),
+        '/simple-lobby': (context) => const SimpleLobbyScreen(),
         '/domino-block': (context) => const ClassicDominoGameScreen(),
         '/domino-classic': (context) => const ClassicDominoGameScreen(),
         '/domino-draw': (context) => const DrawDominoGameScreen(),
