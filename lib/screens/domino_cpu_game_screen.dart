@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/anchored_adaptive_banner_ad.dart';
+import '../widgets/app_version_label.dart';
 import '../services/player_points_service.dart';
 import 'admob_variable.dart';
 import 'domino_player_profile.dart';
@@ -22,15 +23,18 @@ class DominoCpuGameScreen extends StatefulWidget {
   State<DominoCpuGameScreen> createState() => _DominoCpuGameScreenState();
 }
 
-class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
+class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
+    with SingleTickerProviderStateMixin {
   static const Color _redTop = Color(0xFF6D0907);
   static const Color _navyBottom = Color(0xFF071524);
   static const Color _tableGreen = Color(0xFF063D2D);
   static const Color _gold = Color(0xFFFFD36B);
   static const Duration _cpuThinkingDelay = Duration(seconds: 3);
+  static const int _targetScore = 30;
 
   final Random _random = Random();
   final ScrollController _playerHandScrollController = ScrollController();
+  late final AnimationController _confettiController;
   DominoPlayerProfile _profile = const DominoPlayerProfile(
     initials: 'JP',
     countryCode: 'US',
@@ -44,16 +48,19 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
   List<_BoardDomino> _board = [];
   int _playerScore = 0;
   int _cpuScore = 0;
+  int _roundNumber = 0;
   bool _isPlayerTurn = true;
   bool _cpuThinking = false;
   bool _roundOver = false;
-  bool _handHidden = false;
   bool _statusVisible = true;
   bool _isSpanish = false;
   bool _largeCenterTile = false;
+  bool _showConfetti = false;
   double _playedTileScale = 1.0;
   String _status = '';
   _RoundWinner? _roundWinner;
+  _RoundWinner? _previousRoundWinner;
+  _TileOwner? _lastTileOwner;
   List<_DominoTile> _roundCpuTiles = [];
   List<_DominoTile> _roundPlayerTiles = [];
   Timer? _statusTimer;
@@ -67,10 +74,13 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
 
   int? get _leftOpen => _board.isEmpty ? null : _board.first.left;
   int? get _rightOpen => _board.isEmpty ? null : _board.last.right;
+  bool get _matchOver =>
+      _playerScore >= _targetScore || _cpuScore >= _targetScore;
 
   @override
   void dispose() {
     _statusTimer?.cancel();
+    _confettiController.dispose();
     _playerHandScrollController.dispose();
     super.dispose();
   }
@@ -78,6 +88,10 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
   @override
   void initState() {
     super.initState();
+    _confettiController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    );
     _loadProfile();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _startNewRound();
@@ -97,10 +111,15 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
   }
 
   void _startNewRound() {
+    _confettiController.stop();
+    _confettiController.reset();
+    _showConfetti = false;
+    _roundNumber += 1;
     final deck = <_DominoTile>[
       for (var left = 0; left <= 6; left++)
         for (var right = left; right <= 6; right++) _DominoTile(left, right),
     ]..shuffle(_random);
+    _debugVerifyDeck(deck);
 
     _playerHand = deck.take(7).toList();
     _cpuHand = deck.skip(7).take(7).toList();
@@ -108,8 +127,8 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     _board = [];
     _roundOver = false;
     _cpuThinking = false;
-    _handHidden = false;
     _roundWinner = null;
+    _lastTileOwner = null;
     _roundCpuTiles = [];
     _roundPlayerTiles = [];
 
@@ -117,6 +136,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     if (starter.owner == _TileOwner.player) {
       _playerHand.remove(starter.tile);
       _board.add(_BoardDomino.fromTile(starter.tile, isFirst: true));
+      _lastTileOwner = _TileOwner.player;
       _isPlayerTurn = false;
       _setStatus(
         _isSpanish
@@ -127,6 +147,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     } else {
       _cpuHand.remove(starter.tile);
       _board.add(_BoardDomino.fromTile(starter.tile, isFirst: true));
+      _lastTileOwner = _TileOwner.cpu;
       _isPlayerTurn = true;
       _setStatus(
         _isSpanish
@@ -136,6 +157,14 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     }
     setState(() {});
     _scrollPlayerHandToPlayableStart();
+  }
+
+  void _startNewMatch() {
+    _playerScore = 0;
+    _cpuScore = 0;
+    _roundNumber = 0;
+    _previousRoundWinner = null;
+    _startNewRound();
   }
 
   void _setStatus(String message, {bool keepVisible = false}) {
@@ -150,21 +179,38 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
   }
 
   _StartingTile _selectStarter() {
+    if (_previousRoundWinner != null) {
+      final owner =
+          _previousRoundWinner == _RoundWinner.player
+              ? _TileOwner.player
+              : _TileOwner.cpu;
+      final hand = owner == _TileOwner.player ? _playerHand : _cpuHand;
+      return _StartingTile(owner, _bestOpeningTile(hand));
+    }
+
     final candidates = <_StartingTile>[
       ..._playerHand.map((tile) => _StartingTile(_TileOwner.player, tile)),
       ..._cpuHand.map((tile) => _StartingTile(_TileOwner.cpu, tile)),
     ];
 
-    candidates.sort((a, b) {
-      final aDouble = a.tile.isDouble ? 1 : 0;
-      final bDouble = b.tile.isDouble ? 1 : 0;
-      if (aDouble != bDouble) return bDouble.compareTo(aDouble);
-      if (a.tile.isDouble && b.tile.isDouble) {
-        return b.tile.left.compareTo(a.tile.left);
-      }
-      return b.tile.points.compareTo(a.tile.points);
-    });
+    candidates.sort((a, b) => _compareOpeningTiles(a.tile, b.tile));
     return candidates.first;
+  }
+
+  _DominoTile _bestOpeningTile(List<_DominoTile> hand) {
+    final sorted = List<_DominoTile>.from(hand)
+      ..sort((a, b) => _compareOpeningTiles(a, b));
+    return sorted.first;
+  }
+
+  int _compareOpeningTiles(_DominoTile a, _DominoTile b) {
+    final aDouble = a.isDouble ? 1 : 0;
+    final bDouble = b.isDouble ? 1 : 0;
+    if (aDouble != bDouble) return bDouble.compareTo(aDouble);
+    if (a.isDouble && b.isDouble) {
+      return b.left.compareTo(a.left);
+    }
+    return b.points.compareTo(a.points);
   }
 
   Future<void> _playTile(_DominoTile tile, [_BoardSide? requestedSide]) async {
@@ -184,6 +230,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     setState(() {
       _placeTile(tile, side);
       _playerHand.remove(tile);
+      _lastTileOwner = _TileOwner.player;
       _isPlayerTurn = false;
       _setStatus(
         _isSpanish ? 'Jugaste ${tile.label}' : 'You played ${tile.label}',
@@ -198,31 +245,119 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     return showDialog<_BoardSide>(
       context: context,
       builder:
-          (context) => AlertDialog(
-            backgroundColor: const Color(0xFF101820),
-            title: Text(
-              _isSpanish
-                  ? 'Donde quieres poner ${tile.label}?'
-                  : 'Where do you want to play ${tile.label}?',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
+          (context) => SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 26, 16, 0),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xEF101820),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: _gold.withValues(alpha: 0.5),
+                        width: 1.4,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            _DominoWidget(
+                              tile: tile,
+                              vertical: tile.isDouble,
+                              highlighted: false,
+                              color:
+                                  tile.isDouble
+                                      ? const Color(0xFF1E88E5)
+                                      : const Color(0xFFFFF6DF),
+                              width: 30,
+                              height: 56,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _isSpanish
+                                    ? 'Elige lado para ${tile.label}'
+                                    : 'Choose side for ${tile.label}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(context),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.28),
+                                  ),
+                                ),
+                                child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed:
+                                    () =>
+                                        Navigator.pop(context, _BoardSide.left),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE53935),
+                                  foregroundColor: Colors.white,
+                                  side: BorderSide(
+                                    color: _gold.withValues(alpha: 0.55),
+                                  ),
+                                ),
+                                child: Text(_isSpanish ? 'Izquierda' : 'Left'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed:
+                                    () => Navigator.pop(
+                                      context,
+                                      _BoardSide.right,
+                                    ),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE53935),
+                                  foregroundColor: Colors.white,
+                                  side: BorderSide(
+                                    color: _gold.withValues(alpha: 0.55),
+                                  ),
+                                ),
+                                child: Text(_isSpanish ? 'Derecha' : 'Right'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, _BoardSide.left),
-                child: Text(_isSpanish ? 'Izquierda' : 'Left'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, _BoardSide.right),
-                child: Text(_isSpanish ? 'Derecha' : 'Right'),
-              ),
-            ],
           ),
     );
   }
@@ -252,6 +387,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
       if (move != null) {
         _placeTile(move.tile, move.side);
         _cpuHand.remove(move.tile);
+        _lastTileOwner = _TileOwner.cpu;
         _setStatus(
           _isSpanish
               ? 'CPU jugo ${move.tile.label}'
@@ -339,6 +475,36 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
       final oriented = tile.left == open ? tile : tile.flipped;
       _board.add(_BoardDomino.fromTile(oriented));
     }
+    _debugVerifyBoardLinks();
+  }
+
+  void _debugVerifyDeck(List<_DominoTile> deck) {
+    assert(() {
+      final unique = deck.map((tile) => tile.key).toSet();
+      if (deck.length != 28 || unique.length != 28) {
+        debugPrint(
+          'Kapi domino deck error: expected 28 unique tiles, '
+          'got ${deck.length} tiles and ${unique.length} unique.',
+        );
+      }
+      return true;
+    }());
+  }
+
+  void _debugVerifyBoardLinks() {
+    assert(() {
+      for (var index = 0; index < _board.length - 1; index++) {
+        final current = _board[index];
+        final next = _board[index + 1];
+        if (current.right != next.left) {
+          debugPrint(
+            'Kapi board link error at $index: '
+            '${current.tile.label} does not connect to ${next.tile.label}.',
+          );
+        }
+      }
+      return true;
+    }());
   }
 
   bool _checkRoundEnd() {
@@ -368,7 +534,10 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
         (sum, tile) => sum + tile.points,
       );
       final cpuPoints = _cpuHand.fold<int>(0, (sum, tile) => sum + tile.points);
-      if (playerPoints <= cpuPoints) {
+      final playerWinsBlock =
+          playerPoints < cpuPoints ||
+          (playerPoints == cpuPoints && _lastTileOwner == _TileOwner.player);
+      if (playerWinsBlock) {
         final gained = cpuPoints - playerPoints;
         _playerScore += gained;
         playerGained = gained;
@@ -392,11 +561,28 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     setState(() {
       _roundOver = true;
       _roundWinner = winner;
+      _previousRoundWinner = winner;
       _roundCpuTiles = List<_DominoTile>.from(_cpuHand);
       _roundPlayerTiles = List<_DominoTile>.from(_playerHand);
       _cpuThinking = false;
       _setStatus(result!, keepVisible: true);
     });
+    if (_matchOver) {
+      setState(() => _showConfetti = true);
+      _confettiController
+        ..reset()
+        ..repeat(period: const Duration(milliseconds: 1800));
+      Future.delayed(const Duration(seconds: 6), () {
+        if (mounted && _matchOver) {
+          _confettiController.stop();
+          setState(() => _showConfetti = false);
+        }
+      });
+    } else {
+      _confettiController.stop();
+      _confettiController.reset();
+      _showConfetti = false;
+    }
     unawaited(
       PlayerPointsService.recordRound(
         code: _profile.code,
@@ -452,6 +638,10 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
                   adUnitId: _adUnitId,
                   margin: const EdgeInsets.only(top: 8),
                 ),
+                const AppVersionLabel(
+                  padding: EdgeInsets.only(top: 4),
+                  fontSize: 10,
+                ),
               ],
             ),
           ),
@@ -464,7 +654,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     final title =
         _isDrawMode
             ? (_isSpanish ? 'Control con pozo' : 'Draw / Pool')
-            : (_isSpanish ? 'Clasico beta' : 'Classic beta');
+            : 'Block beta';
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -472,8 +662,14 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
         Row(
           children: [
             IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+              onPressed:
+                  () => Navigator.pushNamed(
+                    context,
+                    '/start-game',
+                    arguments: {'resumeClassicGame': true},
+                  ),
+              tooltip: _isSpanish ? 'Inicio del juego' : 'Game home',
+              icon: const Icon(Icons.home_rounded, color: Colors.white),
             ),
             Expanded(
               child: Center(
@@ -679,9 +875,10 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
   }
 
   Widget _buildTable() {
-    final compact = MediaQuery.sizeOf(context).width < 430;
-    final handHeight = _handHidden ? 46.0 : 78.0;
-    final statusBottom = handHeight + 42;
+    final compact = MediaQuery.sizeOf(context).width < 520;
+    const handHeight = 78.0;
+    const handBottom = 8.0;
+    const statusBottom = handHeight + handBottom + 10;
     final showPassAction = _shouldShowPassAction;
     return Container(
       decoration: BoxDecoration(
@@ -697,6 +894,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
         ],
       ),
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
           Positioned.fill(
             child: DecoratedBox(
@@ -712,9 +910,9 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
             ),
           ),
           Positioned(
-            top: 10,
-            left: 10,
-            right: 10,
+            top: -6,
+            left: 8,
+            right: 8,
             child: Row(
               children: [
                 Expanded(
@@ -723,6 +921,8 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
                     child: _buildProfileBadge(isCpu: false, compact: compact),
                   ),
                 ),
+                const SizedBox(width: 8),
+                _buildRoundCenterBadge(compact: compact),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Align(
@@ -734,17 +934,17 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
             ),
           ),
           Positioned(
-            top: compact ? 64 : 96,
+            top: compact ? 42 : 66,
             right: 18,
             child: _buildCpuHandPreview(compact: compact),
           ),
           if (_isDrawMode)
             Positioned(right: 12, bottom: 124, child: _buildPoolBadge()),
           Positioned.fill(
-            top: compact ? 72 : 88,
+            top: compact ? 48 : 62,
             left: 12,
             right: 12,
-            bottom: statusBottom + 56,
+            bottom: statusBottom + 34,
             child: _BoardView(
               board: _board,
               centerTileScale: _largeCenterTile ? 1.18 : 1.0,
@@ -754,7 +954,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
           Positioned(
             left: 10,
             right: 10,
-            bottom: 4,
+            bottom: handBottom,
             child: _buildPlayerHandArea(handHeight),
           ),
           Positioned(
@@ -763,7 +963,65 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
             bottom: statusBottom,
             child: _buildStatusBar(showPassAction: showPassAction),
           ),
+          if (_roundOver && _matchOver && _showConfetti)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _confettiController,
+                  builder:
+                      (context, _) => CustomPaint(
+                        painter: _ConfettiPainter(
+                          progress: _confettiController.value,
+                        ),
+                      ),
+                ),
+              ),
+            ),
           if (_roundOver) Center(child: _buildRoundOverCard()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoundCenterBadge({bool compact = false}) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 9 : 12,
+        vertical: compact ? 6 : 7,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _gold.withValues(alpha: 0.34)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.22),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _isSpanish ? 'Ronda $_roundNumber' : 'Round $_roundNumber',
+            maxLines: 1,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: compact ? 10 : 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          Text(
+            _isSpanish ? 'Meta $_targetScore' : 'Goal $_targetScore',
+            maxLines: 1,
+            style: TextStyle(
+              color: _gold,
+              fontSize: compact ? 9 : 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ],
       ),
     );
@@ -771,20 +1029,20 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
 
   Widget _buildProfileBadge({required bool isCpu, bool compact = false}) {
     final title = isCpu ? 'CPU' : _profile.initials;
-    final subtitle =
-        isCpu
-            ? 'ID: CPU'
-            : (_isSpanish
-                ? 'ID: ${_profile.shortId}'
-                : 'ID: ${_profile.shortId}');
     final score = isCpu ? _cpuScore : _playerScore;
-    final tier =
-        isCpu
-            ? (_isSpanish ? 'No clasificatorio' : 'Unranked')
-            : _tierForScore(score);
+    final tierVisual = DominoTierVisual.fromScore(score, ranked: !isCpu);
     final icon = isCpu ? Icons.smart_toy_rounded : _profile.icon;
-    final color = isCpu ? const Color(0xFF795548) : _profile.color;
+    final color =
+        isCpu
+            ? const Color(0xFF795548)
+            : tierVisual.avatarBackground(_profile.color);
     final isActive = (_cpuThinking && isCpu) || (_isPlayerTurn && !isCpu);
+    final borderColor =
+        isActive
+            ? _gold
+            : (tierVisual.isRanked
+                ? tierVisual.frameColor()
+                : Colors.white.withValues(alpha: 0.18));
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -795,19 +1053,11 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: isActive ? 0.50 : 0.42),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isActive ? _gold : Colors.white.withValues(alpha: 0.18),
-        ),
+        border: Border.all(color: borderColor, width: isActive ? 1.4 : 1),
         boxShadow:
-            isActive
-                ? [
-                  BoxShadow(
-                    color: _gold.withValues(alpha: 0.34),
-                    blurRadius: 18,
-                    spreadRadius: 1,
-                  ),
-                ]
-                : null,
+            tierVisual.shadows(active: isActive).isEmpty
+                ? null
+                : tierVisual.shadows(active: isActive),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -816,9 +1066,28 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
             width: compact ? 34 : 42,
             height: compact ? 34 : 42,
             decoration: BoxDecoration(
-              color: color,
+              gradient:
+                  tierVisual.isRanked
+                      ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [tierVisual.accent, color],
+                      )
+                      : null,
+              color: tierVisual.isRanked ? null : color,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _gold),
+              border: Border.all(
+                color: tierVisual.frameColor(active: isActive),
+              ),
+              boxShadow:
+                  tierVisual.isRanked
+                      ? [
+                        BoxShadow(
+                          color: tierVisual.accent.withValues(alpha: 0.24),
+                          blurRadius: compact ? 8 : 12,
+                        ),
+                      ]
+                      : null,
             ),
             child: Icon(icon, color: Colors.white, size: compact ? 20 : 24),
           ),
@@ -837,7 +1106,9 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
                 ),
               ),
               Text(
-                compact ? '$score pts' : '$score pts · $subtitle',
+                '$score/$_targetScore pts',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.78),
                   fontWeight: FontWeight.w700,
@@ -846,7 +1117,10 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
               ),
               if (!compact) ...[
                 const SizedBox(height: 2),
-                _buildTierChip(tier),
+                _buildTierChip(
+                  isCpu && _isSpanish ? 'No clasificatorio' : tierVisual.label,
+                  tierVisual,
+                ),
               ],
             ],
           ),
@@ -855,48 +1129,23 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     );
   }
 
-  String _tierForScore(int score) {
-    if (score >= 450) return 'Diamond';
-    if (score >= 320) return 'Platinum';
-    if (score >= 210) return 'Gold';
-    if (score >= 90) return 'Silver';
-    return 'Bronze';
-  }
-
-  Widget _buildTierChip(String tier) {
-    final color = switch (tier) {
-      'Diamond' => const Color(0xFF7DE7FF),
-      'Platinum' => const Color(0xFFBFE8FF),
-      'Gold' => const Color(0xFFFFD36B),
-      'Silver' => const Color(0xFFC9D4E5),
-      'Unranked' || 'No clasificatorio' => const Color(0xFFA7B0B8),
-      _ => const Color(0xFFC28B62),
-    };
-    final icon = switch (tier) {
-      'Diamond' => Icons.diamond_rounded,
-      'Platinum' => Icons.auto_awesome_rounded,
-      'Gold' => Icons.workspace_premium_rounded,
-      'Silver' => Icons.shield_rounded,
-      'Unranked' || 'No clasificatorio' => Icons.remove_moderator_rounded,
-      _ => Icons.military_tech_rounded,
-    };
-
+  Widget _buildTierChip(String tier, DominoTierVisual visual) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.18),
+        color: visual.accent.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.75)),
+        border: Border.all(color: visual.accent.withValues(alpha: 0.75)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 11),
+          Icon(visual.icon, color: visual.accent, size: 11),
           const SizedBox(width: 3),
           Text(
             tier,
             style: TextStyle(
-              color: color,
+              color: visual.accent,
               fontSize: tier.length > 10 ? 9 : 10,
               fontWeight: FontWeight.w900,
             ),
@@ -972,12 +1221,8 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
     final statusText =
         showPassAction
             ? (_isDrawMode && _pool.isNotEmpty
-                ? (_isSpanish
-                    ? 'No tienes jugada. Toma del pozo.'
-                    : 'No move. Draw from the pool.')
-                : (_isSpanish
-                    ? 'No tienes jugada. Puedes pasar.'
-                    : 'No move. You can pass.'))
+                ? (_isSpanish ? 'Toma del pozo.' : 'Draw from pool.')
+                : (_isSpanish ? 'Sin jugada.' : 'No move.'))
             : _status;
     final actionLabel =
         _isDrawMode && _pool.isNotEmpty
@@ -1067,45 +1312,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
   }
 
   Widget _buildPlayerHandArea(double height) {
-    return SizedBox(
-      height: height + 32,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            left: 0,
-            top: 0,
-            child: FilledButton(
-              onPressed: () => setState(() => _handHidden = !_handHidden),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.black.withValues(alpha: 0.58),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: _gold.withValues(alpha: 0.45)),
-                ),
-              ),
-              child: Text(
-                _handHidden
-                    ? (_isSpanish ? 'Ver' : 'Show')
-                    : (_isSpanish ? 'Ocultar' : 'Hide'),
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _buildPlayerHand(height),
-          ),
-        ],
-      ),
-    );
+    return SizedBox(height: height, child: _buildPlayerHand(height));
   }
 
   Widget _buildPlayerHand(double height) {
@@ -1133,18 +1340,14 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
               onTap: () => _playTile(tile),
               child: AnimatedOpacity(
                 duration: const Duration(milliseconds: 180),
-                opacity:
-                    playable || _roundOver ? 1 : (_handHidden ? 0.34 : 0.55),
-                child: Transform.translate(
-                  offset: Offset(0, _handHidden ? 22 : 0),
-                  child: _DominoWidget(
-                    tile: tile,
-                    vertical: true,
-                    highlighted: playable,
-                    color: Colors.white,
-                    width: 42,
-                    height: 60,
-                  ),
+                opacity: playable || _roundOver ? 1 : 0.55,
+                child: _DominoWidget(
+                  tile: tile,
+                  vertical: true,
+                  highlighted: playable,
+                  color: Colors.white,
+                  width: 52,
+                  height: 60,
                 ),
               ),
             );
@@ -1186,6 +1389,16 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
   Widget _buildRoundOverCard() {
     final winnerName =
         _roundWinner == _RoundWinner.cpu ? 'CPU' : _profile.initials;
+    final matchWinner =
+        _playerScore >= _targetScore
+            ? _profile.initials
+            : (_cpuScore >= _targetScore ? 'CPU' : null);
+    final title =
+        matchWinner == null
+            ? _status
+            : (_isSpanish
+                ? '$matchWinner gana el juego'
+                : '$matchWinner wins the game');
     return Container(
       width: min(MediaQuery.sizeOf(context).width - 54, 380),
       padding: const EdgeInsets.all(18),
@@ -1199,7 +1412,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            _status,
+            title,
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white,
@@ -1217,7 +1430,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            '${_profile.initials} $_playerScore  ·  CPU $_cpuScore',
+            '${_profile.initials} $_playerScore/$_targetScore  ·  CPU $_cpuScore/$_targetScore',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.82),
               fontWeight: FontWeight.w800,
@@ -1227,9 +1440,13 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen> {
           _buildRoundTilesSummary(),
           const SizedBox(height: 14),
           FilledButton.icon(
-            onPressed: _startNewRound,
+            onPressed: _matchOver ? _startNewMatch : _startNewRound,
             icon: const Icon(Icons.refresh_rounded),
-            label: Text(_isSpanish ? 'Siguiente ronda' : 'Next round'),
+            label: Text(
+              _matchOver
+                  ? (_isSpanish ? 'Nuevo juego' : 'New game')
+                  : (_isSpanish ? 'Siguiente ronda' : 'Next round'),
+            ),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFE53935),
               foregroundColor: Colors.white,
@@ -1376,8 +1593,8 @@ class DrawDominoGameScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   isSpanish
-                      ? 'Este modo viene pronto. Por ahora prueba Classic beta.'
-                      : 'This mode is coming soon. For now, test Classic beta.',
+                      ? 'Este modo viene pronto. Por ahora prueba Block beta.'
+                      : 'This mode is coming soon. For now, test Block beta.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.78),
@@ -1394,11 +1611,11 @@ class DrawDominoGameScreen extends StatelessWidget {
                     onPressed:
                         () => Navigator.pushReplacementNamed(
                           context,
-                          '/domino-classic',
+                          '/domino-block',
                         ),
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: Text(
-                      isSpanish ? 'Probar Classic beta' : 'Try Classic beta',
+                      isSpanish ? 'Probar Block beta' : 'Try Block beta',
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                     style: FilledButton.styleFrom(
@@ -1452,7 +1669,10 @@ class _BoardView extends StatelessWidget {
                 left: positions[i].dx,
                 top: positions[i].dy,
                 child: _DominoWidget(
-                  tile: board[i].tile,
+                  tile:
+                      positions[i].flipVisual
+                          ? board[i].tile.flipped
+                          : board[i].tile,
                   vertical: positions[i].vertical,
                   highlighted: board[i].isFirst,
                   color:
@@ -1487,6 +1707,7 @@ class _BoardView extends StatelessWidget {
       direction: _LayoutDirection.right,
       sizeFactor: _sizeFactorFor(board[anchorIndex]),
       isCenterTile: true,
+      flipVisual: false,
     );
 
     _layoutSide(
@@ -1513,8 +1734,10 @@ class _BoardView extends StatelessWidget {
               direction: _LayoutDirection.right,
               sizeFactor: _sizeFactorFor(board[index]),
               isCenterTile: board[index].isFirst,
+              flipVisual: false,
             ),
     ];
+    _debugVerifyBoardAlignment(resolved, tileSize);
     final bounds = _logicalBounds(resolved, tileSize);
     final safeWidth = max(1.0, boardSize.width - 12);
     final safeHeight = max(1.0, boardSize.height - 12);
@@ -1529,10 +1752,12 @@ class _BoardView extends StatelessWidget {
       preferred: Offset(boardSize.width / 2, boardSize.height / 2),
     );
 
-    return [
+    final drawPositions = [
       for (final item in resolved)
         _toDrawPosition(item, tileSize, scale, translation),
     ];
+    _debugVerifyDrawAlignment(drawPositions, tileSize);
+    return drawPositions;
   }
 
   Offset _fitTranslation({
@@ -1589,6 +1814,7 @@ class _BoardView extends StatelessWidget {
           direction: direction,
           sizeFactor: _sizeFactorFor(board[anchorIndex]),
           isCenterTile: board[anchorIndex].isFirst,
+          flipVisual: false,
         );
 
     for (final index in indices) {
@@ -1615,6 +1841,7 @@ class _BoardView extends StatelessWidget {
         direction: direction,
         sizeFactor: currentSizeFactor,
         isCenterTile: domino.isFirst,
+        flipVisual: _shouldFlipVisual(side, direction),
       );
 
       segmentCount++;
@@ -1642,19 +1869,28 @@ class _BoardView extends StatelessWidget {
     return tile.isDouble ? !lineIsVertical : lineIsVertical;
   }
 
+  bool _shouldFlipVisual(_BoardSide side, _LayoutDirection direction) {
+    if (side == _BoardSide.right) {
+      return direction == _LayoutDirection.left ||
+          direction == _LayoutDirection.up;
+    }
+    return direction == _LayoutDirection.right ||
+        direction == _LayoutDirection.down;
+  }
+
   _LayoutDirection _nextDirection(_LayoutDirection direction, _BoardSide side) {
     if (side == _BoardSide.right) {
       return switch (direction) {
         _LayoutDirection.right => _LayoutDirection.down,
         _LayoutDirection.down => _LayoutDirection.left,
-        _LayoutDirection.left => _LayoutDirection.up,
+        _LayoutDirection.left => _LayoutDirection.down,
         _LayoutDirection.up => _LayoutDirection.right,
       };
     }
     return switch (direction) {
       _LayoutDirection.left => _LayoutDirection.up,
       _LayoutDirection.up => _LayoutDirection.right,
-      _LayoutDirection.right => _LayoutDirection.down,
+      _LayoutDirection.right => _LayoutDirection.up,
       _LayoutDirection.down => _LayoutDirection.left,
     };
   }
@@ -1669,20 +1905,169 @@ class _BoardView extends StatelessWidget {
     final previousSize =
         _drawSize(tileSize, previous.vertical) * previous.sizeFactor;
     final currentSize = _drawSize(tileSize, vertical) * currentSizeFactor;
-    final gap = 0.0;
+    const contactOverlap = 1.1;
+    final previousRect = Rect.fromCenter(
+      center: previous.center,
+      width: previousSize.width,
+      height: previousSize.height,
+    );
+
+    switch (direction) {
+      case _LayoutDirection.right:
+        final x = previousRect.right + currentSize.width / 2 - contactOverlap;
+        var y = previous.center.dy;
+        if (previous.direction == _LayoutDirection.up) {
+          y = previousRect.top + currentSize.height / 2;
+        } else if (previous.direction == _LayoutDirection.down) {
+          y = previousRect.bottom - currentSize.height / 2;
+        }
+        return Offset(x, y);
+      case _LayoutDirection.left:
+        final x = previousRect.left - currentSize.width / 2 + contactOverlap;
+        var y = previous.center.dy;
+        if (previous.direction == _LayoutDirection.up) {
+          y = previousRect.top + currentSize.height / 2;
+        } else if (previous.direction == _LayoutDirection.down) {
+          y = previousRect.bottom - currentSize.height / 2;
+        }
+        return Offset(x, y);
+      case _LayoutDirection.down:
+        var x = previous.center.dx;
+        if (previous.direction == _LayoutDirection.right) {
+          x = previousRect.right - currentSize.width / 2;
+        } else if (previous.direction == _LayoutDirection.left) {
+          x = previousRect.left + currentSize.width / 2;
+        }
+        final y = previousRect.bottom + currentSize.height / 2 - contactOverlap;
+        return Offset(x, y);
+      case _LayoutDirection.up:
+        var x = previous.center.dx;
+        if (previous.direction == _LayoutDirection.right) {
+          x = previousRect.right - currentSize.width / 2;
+        } else if (previous.direction == _LayoutDirection.left) {
+          x = previousRect.left + currentSize.width / 2;
+        }
+        final y = previousRect.top - currentSize.height / 2 + contactOverlap;
+        return Offset(x, y);
+    }
+  }
+
+  void _debugVerifyBoardAlignment(
+    List<_LogicalDominoPosition> positions,
+    Size tileSize,
+  ) {
+    assert(() {
+      for (var index = 1; index < positions.length; index++) {
+        final previous = positions[index - 1];
+        final current = positions[index];
+        final previousSize =
+            _drawSize(tileSize, previous.vertical) * previous.sizeFactor;
+        final currentSize =
+            _drawSize(tileSize, current.vertical) * current.sizeFactor;
+        final previousRect = Rect.fromCenter(
+          center: previous.center,
+          width: previousSize.width,
+          height: previousSize.height,
+        );
+        final currentRect = Rect.fromCenter(
+          center: current.center,
+          width: currentSize.width,
+          height: currentSize.height,
+        );
+
+        if (!_rectsConnect(previousRect, currentRect, current.direction)) {
+          debugPrint(
+            'Kapi classic alignment warning at $index: '
+            'previous=${previous.direction} current=${current.direction}',
+          );
+        }
+      }
+      return true;
+    }());
+  }
+
+  void _debugVerifyDrawAlignment(
+    List<_DominoPosition> positions,
+    Size tileSize,
+  ) {
+    assert(() {
+      for (var index = 1; index < positions.length; index++) {
+        final previous = positions[index - 1];
+        final current = positions[index];
+        final previousSize =
+            _drawSize(tileSize, previous.vertical) * previous.scaleFactor;
+        final currentSize =
+            _drawSize(tileSize, current.vertical) * current.scaleFactor;
+        final previousRect = Rect.fromLTWH(
+          previous.dx,
+          previous.dy,
+          previousSize.width,
+          previousSize.height,
+        );
+        final currentRect = Rect.fromLTWH(
+          current.dx,
+          current.dy,
+          currentSize.width,
+          currentSize.height,
+        );
+
+        if (!_rectsConnect(
+          previousRect,
+          currentRect,
+          current.layoutDirection,
+        )) {
+          debugPrint(
+            'Kapi classic draw alignment warning at $index: '
+            'previous=${previous.layoutDirection} '
+            'current=${current.layoutDirection}',
+          );
+        }
+      }
+      return true;
+    }());
+  }
+
+  bool _rectsConnect(Rect previous, Rect current, _LayoutDirection direction) {
+    const tolerance = 1.35;
+    const maxVisualOverlap = 1.6;
+    bool close(double a, double b) => (a - b).abs() <= tolerance;
+    bool touchesOrSlightlyOverlaps(double previousEdge, double currentEdge) {
+      final delta = previousEdge - currentEdge;
+      return delta.abs() <= tolerance ||
+          (delta > 0 && delta <= maxVisualOverlap);
+    }
+
+    bool touchesOrSlightlyOverlapsReverse(
+      double previousEdge,
+      double currentEdge,
+    ) {
+      final delta = currentEdge - previousEdge;
+      return delta.abs() <= tolerance ||
+          (delta > 0 && delta <= maxVisualOverlap);
+    }
+
+    bool crossAxisAlignedX() =>
+        close(previous.center.dx, current.center.dx) ||
+        close(previous.left, current.left) ||
+        close(previous.right, current.right);
+    bool crossAxisAlignedY() =>
+        close(previous.center.dy, current.center.dy) ||
+        close(previous.top, current.top) ||
+        close(previous.bottom, current.bottom);
+
     return switch (direction) {
       _LayoutDirection.right =>
-        previous.center +
-            Offset(previousSize.width / 2 + currentSize.width / 2 + gap, 0),
+        touchesOrSlightlyOverlaps(previous.right, current.left) &&
+            crossAxisAlignedY(),
       _LayoutDirection.left =>
-        previous.center -
-            Offset(previousSize.width / 2 + currentSize.width / 2 + gap, 0),
+        touchesOrSlightlyOverlapsReverse(previous.left, current.right) &&
+            crossAxisAlignedY(),
       _LayoutDirection.down =>
-        previous.center +
-            Offset(0, previousSize.height / 2 + currentSize.height / 2 + gap),
+        touchesOrSlightlyOverlaps(previous.bottom, current.top) &&
+            crossAxisAlignedX(),
       _LayoutDirection.up =>
-        previous.center -
-            Offset(0, previousSize.height / 2 + currentSize.height / 2 + gap),
+        touchesOrSlightlyOverlapsReverse(previous.top, current.bottom) &&
+            crossAxisAlignedX(),
     };
   }
 
@@ -1714,6 +2099,8 @@ class _BoardView extends StatelessWidget {
       center.dy - size.height / 2,
       position.vertical,
       scale * position.sizeFactor,
+      position.flipVisual,
+      position.direction,
     );
   }
 
@@ -1869,6 +2256,55 @@ class _DominoPainter extends CustomPainter {
   }
 }
 
+class _ConfettiPainter extends CustomPainter {
+  _ConfettiPainter({required this.progress});
+
+  final double progress;
+  static const _colors = [
+    Color(0xFFFFD36B),
+    Color(0xFFE53935),
+    Color(0xFF1E88E5),
+    Color(0xFF43A047),
+    Color(0xFFFFF6DF),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    const pieces = 96;
+    for (var index = 0; index < pieces; index++) {
+      final seed = index * 37.0;
+      final startX = ((seed * 17.0) % 1000) / 1000 * size.width;
+      final speed = 0.55 + ((index * 11) % 45) / 100;
+      final drift = sin(progress * pi * 2 + index) * (8 + index % 18);
+      final yProgress = (progress * speed + ((index * 29) % 100) / 100) % 1.0;
+      final x = startX + drift;
+      final y = yProgress * (size.height + 90) - 45;
+      final width = 5.0 + (index % 4);
+      final height = 9.0 + (index % 5);
+      final rotation = progress * pi * (2 + index % 4) + index;
+
+      paint.color = _colors[index % _colors.length].withValues(alpha: 0.92);
+      canvas.save();
+      canvas.translate(x, y);
+      canvas.rotate(rotation);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset.zero, width: width, height: height),
+          const Radius.circular(1.5),
+        ),
+        paint,
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ConfettiPainter oldDelegate) {
+    return oldDelegate.progress != progress;
+  }
+}
+
 class _DominoTile {
   const _DominoTile(this.left, this.right);
 
@@ -1878,6 +2314,7 @@ class _DominoTile {
   bool get isDouble => left == right;
   int get points => left + right;
   String get label => '$left-$right';
+  String get key => left <= right ? '$left-$right' : '$right-$left';
   _DominoTile get flipped => _DominoTile(right, left);
 }
 
@@ -1896,9 +2333,18 @@ class _BoardDomino {
 }
 
 class _DominoPosition extends Offset {
-  const _DominoPosition(super.dx, super.dy, this.vertical, this.scaleFactor);
+  const _DominoPosition(
+    super.dx,
+    super.dy,
+    this.vertical,
+    this.scaleFactor,
+    this.flipVisual,
+    this.layoutDirection,
+  );
   final bool vertical;
   final double scaleFactor;
+  final bool flipVisual;
+  final _LayoutDirection layoutDirection;
 }
 
 class _LogicalDominoPosition {
@@ -1908,6 +2354,7 @@ class _LogicalDominoPosition {
     required this.direction,
     required this.sizeFactor,
     required this.isCenterTile,
+    required this.flipVisual,
   });
 
   final Offset center;
@@ -1915,6 +2362,7 @@ class _LogicalDominoPosition {
   final _LayoutDirection direction;
   final double sizeFactor;
   final bool isCenterTile;
+  final bool flipVisual;
 }
 
 class _StartingTile {

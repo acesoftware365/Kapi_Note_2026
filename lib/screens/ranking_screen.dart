@@ -1,4 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../widgets/anchored_adaptive_banner_ad.dart';
+import 'admob_variable.dart';
+import 'domino_player_profile.dart';
+import '../services/player_points_service.dart';
 
 class RankingScreen extends StatefulWidget {
   const RankingScreen({super.key});
@@ -8,49 +16,34 @@ class RankingScreen extends StatefulWidget {
 }
 
 class _RankingScreenState extends State<RankingScreen> {
-  static const String _currentPlayerId = 'JP-HGI386';
-  static const int _currentRank = 37;
   final ScrollController _scrollController = ScrollController();
+  _RankingMode _selectedMode = _RankingMode.block;
 
-  late final List<_RankingEntry> _entries = List<_RankingEntry>.generate(60, (
-    index,
-  ) {
-    final rank = index + 1;
-    if (rank == _currentRank) {
-      return const _RankingEntry(
-        rank: _currentRank,
-        id: _currentPlayerId,
-        points: 128,
-        tier: 'Silver',
-        difficulty: 'Medium',
-        mode: 'Draw',
-        streak: 4,
-      );
-    }
-
-    final initials =
-        ['MR', 'KA', 'LG', 'AN', 'CP', 'DR', 'JM', 'RL', 'TA', 'YS'][index %
-            10];
-    final tier =
-        ['Diamond', 'Platinum', 'Gold', 'Silver', 'Bronze'][(rank ~/ 8).clamp(
-          0,
-          4,
-        )];
-    final difficulty = ['Hard', 'Medium', 'Easy'][index % 3];
-    final mode = index.isEven ? 'Draw' : 'Classic';
-
-    return _RankingEntry(
-      rank: rank,
-      id: '$initials-${String.fromCharCode(65 + index % 26)}K${100 + index}',
-      points: (520 - (rank * 7)).clamp(18, 520),
-      tier: tier,
-      difficulty: difficulty,
-      mode: mode,
-      streak: (12 - index % 9).clamp(1, 12),
-    );
-  });
+  late final Future<DominoPlayerProfile> _profileFuture = _loadProfile();
+  final Stream<QuerySnapshot<Map<String, dynamic>>> _rankingStream =
+      FirebaseFirestore.instance
+          .collection('kapi_player_points')
+          .orderBy('totalPoints', descending: true)
+          .limit(100)
+          .snapshots();
 
   bool get _isSpanish => Localizations.localeOf(context).languageCode == 'es';
+
+  String get _adUnitId =>
+      defaultTargetPlatform == TargetPlatform.android
+          ? AdmobVariable.bannerAndroidUnit
+          : AdmobVariable.bannerIosUnit;
+
+  Future<DominoPlayerProfile> _loadProfile() async {
+    final profile = await DominoPlayerProfile.load();
+    await PlayerPointsService.ensureProfileRegistered(
+      code: profile.code,
+      publicId: profile.publicId,
+      initials: profile.initials,
+      countryCode: profile.countryCode,
+    );
+    return profile;
+  }
 
   @override
   void dispose() {
@@ -58,9 +51,10 @@ class _RankingScreenState extends State<RankingScreen> {
     super.dispose();
   }
 
-  void _jumpToPlayer() {
+  void _jumpToPlayer(int currentRank) {
     const rowExtent = 78.0;
-    final target = ((_currentRank - 2) * rowExtent).clamp(
+    if (!_scrollController.hasClients) return;
+    final target = ((currentRank - 2) * rowExtent).clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
     );
@@ -74,9 +68,6 @@ class _RankingScreenState extends State<RankingScreen> {
   @override
   Widget build(BuildContext context) {
     final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
-    final currentEntry = _entries.firstWhere(
-      (entry) => entry.rank == _currentRank,
-    );
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -84,14 +75,18 @@ class _RankingScreenState extends State<RankingScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
           tooltip: _isSpanish ? 'Volver' : 'Back',
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           _isSpanish ? 'Ranking de jugadores' : 'Player Ranking',
-          style: const TextStyle(fontWeight: FontWeight.w900),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
         ),
+        iconTheme: const IconThemeData(color: Colors.white),
         centerTitle: true,
       ),
       body: Stack(
@@ -118,59 +113,93 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
           ),
           SafeArea(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                isTablet ? 28 : 16,
-                12,
-                isTablet ? 28 : 16,
-                16,
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    _isSpanish ? 'Basado en puntos' : 'Based on points',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.72),
-                      fontSize: isTablet ? 16 : 13,
-                      fontWeight: FontWeight.w800,
-                    ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: FutureBuilder<DominoPlayerProfile>(
+                    future: _profileFuture,
+                    builder: (context, profileSnapshot) {
+                      final profile = profileSnapshot.data;
+                      if (profile == null) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _rankingStream,
+                        builder: (context, rankingSnapshot) {
+                          return FutureBuilder<List<_RankingEntry>>(
+                            future: _entriesFromSnapshots(
+                              profile,
+                              rankingSnapshot,
+                            ),
+                            builder: (context, entriesSnapshot) {
+                              final allEntries = entriesSnapshot.data;
+                              if (allEntries == null) {
+                                return const Center(
+                                  child: CircularProgressIndicator(),
+                                );
+                              }
+                              final entries = _entriesForSelectedMode(
+                                allEntries,
+                              );
+                              final currentEntry = entries.firstWhere(
+                                (entry) => entry.code == profile.code,
+                                orElse:
+                                    () => _RankingEntry.fromProfile(
+                                      profile,
+                                      rank: 0,
+                                      mode: _selectedMode.label,
+                                    ),
+                              );
+                              return Padding(
+                                padding: EdgeInsets.fromLTRB(
+                                  isTablet ? 28 : 16,
+                                  12,
+                                  isTablet ? 28 : 16,
+                                  16,
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      _isSpanish
+                                          ? 'Solo partidas contra amigos'
+                                          : 'Friends matches only',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.72,
+                                        ),
+                                        fontSize: isTablet ? 16 : 13,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _buildModeTabs(isTablet),
+                                    const SizedBox(height: 10),
+                                    _buildCurrentPlayerCard(
+                                      currentEntry,
+                                      isTablet,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Expanded(
+                                      child: _buildRankingList(
+                                        entries,
+                                        profile.code,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
                   ),
-                  const SizedBox(height: 10),
-                  _buildCurrentPlayerCard(currentEntry, isTablet),
-                  const SizedBox(height: 14),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.16),
-                        ),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(24),
-                        child: ListView.separated(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          itemCount: _entries.length,
-                          separatorBuilder:
-                              (_, __) => Divider(
-                                height: 1,
-                                color: Colors.white.withValues(alpha: 0.08),
-                              ),
-                          itemBuilder: (context, index) {
-                            final entry = _entries[index];
-                            return _buildRankingRow(
-                              entry,
-                              entry.id == _currentPlayerId,
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                AnchoredAdaptiveBannerAd(
+                  adUnitId: _adUnitId,
+                  margin: EdgeInsets.zero,
+                ),
+              ],
             ),
           ),
         ],
@@ -178,8 +207,193 @@ class _RankingScreenState extends State<RankingScreen> {
     );
   }
 
+  Future<List<_RankingEntry>> _entriesFromSnapshots(
+    DominoPlayerProfile profile,
+    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+  ) async {
+    final entries = <_RankingEntry>[];
+    if (snapshot.hasData) {
+      for (final doc in snapshot.data!.docs) {
+        entries.add(_RankingEntry.fromFirestore(doc));
+      }
+    }
+    if (entries.isEmpty) {
+      entries.add(await _RankingEntry.fromLocal(profile, rank: 1));
+    } else if (!entries.any((entry) => entry.code == profile.code)) {
+      entries.add(
+        await _RankingEntry.fromLocal(profile, rank: entries.length + 1),
+      );
+    }
+    entries.sort((a, b) {
+      final byPoints = b.points.compareTo(a.points);
+      if (byPoints != 0) return byPoints;
+      final byWins = b.wins.compareTo(a.wins);
+      if (byWins != 0) return byWins;
+      final byLosses = a.losses.compareTo(b.losses);
+      if (byLosses != 0) return byLosses;
+      return a.id.compareTo(b.id);
+    });
+    for (var i = 0; i < entries.length; i++) {
+      entries[i] = entries[i].copyWith(rank: i + 1);
+    }
+    return entries;
+  }
+
+  List<_RankingEntry> _entriesForSelectedMode(List<_RankingEntry> allEntries) {
+    final entries =
+        allEntries.where((entry) => entry.mode == _selectedMode.label).toList();
+    for (var i = 0; i < entries.length; i++) {
+      entries[i] = entries[i].copyWith(rank: i + 1);
+    }
+    return entries;
+  }
+
+  Widget _buildModeTabs(bool isTablet) {
+    return Container(
+      height: isTablet ? 52 : 44,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        children:
+            _RankingMode.values.map((mode) {
+              final selected = mode == _selectedMode;
+              return Expanded(
+                child: InkWell(
+                  onTap: () {
+                    if (mode != _RankingMode.block) {
+                      final messenger = ScaffoldMessenger.of(context);
+                      messenger
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(
+                          SnackBar(
+                            behavior: SnackBarBehavior.floating,
+                            margin: const EdgeInsets.fromLTRB(16, 0, 16, 82),
+                            backgroundColor: const Color(0xFF101820),
+                            content: Text(
+                              _isSpanish
+                                  ? '${mode.label} todavia no esta disponible.'
+                                  : '${mode.label} is not available yet.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        );
+                      return;
+                    }
+                    setState(() => _selectedMode = mode);
+                    if (_scrollController.hasClients) {
+                      _scrollController.jumpTo(0);
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color:
+                          selected
+                              ? const Color(0xFF1E88E5)
+                              : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border:
+                          selected
+                              ? Border.all(color: const Color(0xFFFFD36B))
+                              : null,
+                    ),
+                    child: Text(
+                      mode.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color:
+                            selected
+                                ? Colors.white
+                                : Colors.white.withValues(alpha: 0.68),
+                        fontWeight: FontWeight.w900,
+                        fontSize: isTablet ? 15 : 12,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildRankingList(List<_RankingEntry> entries, String currentCode) {
+    if (entries.isEmpty) {
+      return Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.22),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        ),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.leaderboard_rounded,
+                  color: Colors.white.withValues(alpha: 0.58),
+                  size: 42,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _isSpanish
+                      ? 'Todavia no hay partidas de ${_selectedMode.label}.'
+                      : 'No ${_selectedMode.label} matches yet.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.76),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: ListView.separated(
+          controller: _scrollController,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          itemCount: entries.length,
+          separatorBuilder:
+              (_, __) => Divider(
+                height: 1,
+                color: Colors.white.withValues(alpha: 0.08),
+              ),
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            return _buildRankingRow(entry, entry.code == currentCode);
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildCurrentPlayerCard(_RankingEntry entry, bool isTablet) {
-    final tierStyle = _TierStyle.forTier(entry.tier);
+    final tierStyle = DominoTierVisual.forLabel(entry.tier);
 
     return Container(
       padding: EdgeInsets.all(isTablet ? 18 : 14),
@@ -188,12 +402,12 @@ class _RankingScreenState extends State<RankingScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            tierStyle.deepColor.withValues(alpha: 0.92),
+            tierStyle.deep.withValues(alpha: 0.92),
             const Color(0xEE101820),
           ],
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: tierStyle.accentColor, width: 1.6),
+        border: Border.all(color: tierStyle.accent, width: 1.6),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.36),
@@ -201,7 +415,7 @@ class _RankingScreenState extends State<RankingScreen> {
             offset: const Offset(0, 12),
           ),
           BoxShadow(
-            color: tierStyle.accentColor.withValues(alpha: 0.24),
+            color: tierStyle.accent.withValues(alpha: 0.24),
             blurRadius: tierStyle.glow,
             spreadRadius: 1,
           ),
@@ -219,7 +433,7 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
             child: Center(
               child: Text(
-                '#${entry.rank}',
+                entry.rank > 0 ? '#${entry.rank}' : '--',
                 style: TextStyle(
                   color: const Color(0xFF101820),
                   fontSize: isTablet ? 22 : 18,
@@ -243,12 +457,12 @@ class _RankingScreenState extends State<RankingScreen> {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '${entry.id} · ${entry.points} pts',
+                  entry.id,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: isTablet ? 24 : 18,
+                    fontSize: isTablet ? 24 : 17,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -260,7 +474,15 @@ class _RankingScreenState extends State<RankingScreen> {
                   children: [
                     _buildTierBadge(entry.tier, compact: false),
                     Text(
-                      '${entry.difficulty} · ${entry.mode} · ${entry.streak} ${_isSpanish ? 'manos' : 'wins'}',
+                      '${entry.points} pts',
+                      style: TextStyle(
+                        color: const Color(0xFFFFD36B).withValues(alpha: 0.9),
+                        fontWeight: FontWeight.w900,
+                        fontSize: isTablet ? 14 : 12,
+                      ),
+                    ),
+                    Text(
+                      '${entry.mode} · ${entry.streak} ${_isSpanish ? 'ganadas seguidas' : 'win streak'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -276,17 +498,62 @@ class _RankingScreenState extends State<RankingScreen> {
           ),
           const SizedBox(width: 10),
           IconButton.filledTonal(
-            onPressed: _jumpToPlayer,
+            onPressed: entry.rank > 0 ? () => _jumpToPlayer(entry.rank) : null,
             tooltip: _isSpanish ? 'Ver mi lugar' : 'Find me',
             icon: const Icon(Icons.my_location_rounded),
+          ),
+          const SizedBox(width: 6),
+          IconButton.filledTonal(
+            onPressed: _showRankingHelp,
+            tooltip: _isSpanish ? 'Reglas del ranking' : 'Ranking rules',
+            icon: const Icon(Icons.question_mark_rounded),
           ),
         ],
       ),
     );
   }
 
+  void _showRankingHelp() {
+    showDialog<void>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: const Color(0xFF101820),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: BorderSide(
+                color: const Color(0xFFFFD36B).withValues(alpha: 0.48),
+              ),
+            ),
+            title: Text(
+              _isSpanish ? 'Reglas del ranking' : 'Ranking rules',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            content: Text(
+              _isSpanish
+                  ? 'El ranking se ordena por puntos. Ganar suma puntos y una racha ayuda a subir mas rapido. Perder resta puntos con una penalidad mas fuerte para que la tabla se mueva. Las partidas contra CPU son practica y no deben decidir el ranking competitivo.'
+                  : 'Ranking is ordered by points. Wins add points, and a streak helps you climb faster. Losses subtract points with a stronger penalty so the table keeps moving. CPU games are practice and should not decide the competitive ranking.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.82),
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(_isSpanish ? 'Entendido' : 'Got it'),
+              ),
+            ],
+          ),
+    );
+  }
+
   Widget _buildRankingRow(_RankingEntry entry, bool isCurrentPlayer) {
-    final tierStyle = _TierStyle.forTier(entry.tier);
+    final tierStyle = DominoTierVisual.forLabel(entry.tier);
     final isPremiumTier = tierStyle.level >= 4;
 
     return AnimatedContainer(
@@ -298,7 +565,7 @@ class _RankingScreenState extends State<RankingScreen> {
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
           colors: [
-            (isCurrentPlayer ? const Color(0xFF1E88E5) : tierStyle.deepColor)
+            (isCurrentPlayer ? const Color(0xFF1E88E5) : tierStyle.deep)
                 .withValues(alpha: isCurrentPlayer ? 0.42 : 0.20),
             Colors.white.withValues(alpha: isPremiumTier ? 0.08 : 0.045),
           ],
@@ -308,7 +575,7 @@ class _RankingScreenState extends State<RankingScreen> {
           color:
               isCurrentPlayer
                   ? const Color(0xFFFFD36B)
-                  : tierStyle.accentColor.withValues(
+                  : tierStyle.accent.withValues(
                     alpha: isPremiumTier ? 0.70 : 0.32,
                   ),
           width: isCurrentPlayer || isPremiumTier ? 1.4 : 1,
@@ -316,7 +583,7 @@ class _RankingScreenState extends State<RankingScreen> {
         boxShadow: [
           if (isPremiumTier)
             BoxShadow(
-              color: tierStyle.accentColor.withValues(alpha: 0.18),
+              color: tierStyle.accent.withValues(alpha: 0.18),
               blurRadius: tierStyle.glow,
               spreadRadius: 0.5,
             ),
@@ -331,7 +598,7 @@ class _RankingScreenState extends State<RankingScreen> {
               color: Colors.black.withValues(alpha: 0.28),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: tierStyle.accentColor.withValues(alpha: 0.74),
+                color: tierStyle.accent.withValues(alpha: 0.74),
               ),
             ),
             child: Center(
@@ -341,7 +608,7 @@ class _RankingScreenState extends State<RankingScreen> {
                   color:
                       isCurrentPlayer
                           ? const Color(0xFFFFD36B)
-                          : tierStyle.accentColor,
+                          : tierStyle.accent,
                   fontWeight: FontWeight.w900,
                   fontSize: 15,
                 ),
@@ -371,7 +638,7 @@ class _RankingScreenState extends State<RankingScreen> {
                   children: [
                     _buildTierBadge(entry.tier, compact: true),
                     Text(
-                      '${entry.difficulty} · ${entry.mode}',
+                      '${entry.wins}W ${entry.losses}L · ${entry.mode}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -398,7 +665,7 @@ class _RankingScreenState extends State<RankingScreen> {
                 ),
               ),
               Text(
-                _isSpanish ? '${entry.streak} manos' : '${entry.streak} wins',
+                _isSpanish ? '${entry.streak} racha' : '${entry.streak} streak',
                 style: TextStyle(
                   color: const Color(0xFFFFD36B).withValues(alpha: 0.86),
                   fontWeight: FontWeight.w800,
@@ -413,7 +680,7 @@ class _RankingScreenState extends State<RankingScreen> {
   }
 
   Widget _buildTierBadge(String tier, {required bool compact}) {
-    final style = _TierStyle.forTier(tier);
+    final style = DominoTierVisual.forLabel(tier);
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 8 : 10,
@@ -422,15 +689,15 @@ class _RankingScreenState extends State<RankingScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            style.accentColor.withValues(alpha: 0.88),
-            style.deepColor.withValues(alpha: 0.82),
+            style.accent.withValues(alpha: 0.88),
+            style.deep.withValues(alpha: 0.82),
           ],
         ),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
         boxShadow: [
           BoxShadow(
-            color: style.accentColor.withValues(
+            color: style.accent.withValues(
               alpha: style.level >= 4 ? 0.28 : 0.12,
             ),
             blurRadius: style.level >= 4 ? 12 : 6,
@@ -459,80 +726,142 @@ class _RankingScreenState extends State<RankingScreen> {
 class _RankingEntry {
   const _RankingEntry({
     required this.rank,
+    required this.code,
     required this.id,
     required this.points,
     required this.tier,
-    required this.difficulty,
     required this.mode,
+    required this.wins,
+    required this.losses,
     required this.streak,
   });
 
   final int rank;
+  final String code;
   final String id;
   final int points;
   final String tier;
-  final String difficulty;
   final String mode;
+  final int wins;
+  final int losses;
   final int streak;
+
+  static Future<_RankingEntry> fromLocal(
+    DominoPlayerProfile profile, {
+    required int rank,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final prefix = 'kapi_player_points_${profile.code}';
+    final points = prefs.getInt('${prefix}_total') ?? 0;
+    final rounds = prefs.getInt('${prefix}_rounds') ?? 0;
+    final wins = prefs.getInt('${prefix}_wins') ?? 0;
+    final savedLosses = prefs.getInt('${prefix}_losses');
+    final losses = savedLosses ?? (rounds > wins ? rounds - wins : 0);
+    return _RankingEntry(
+      rank: rank,
+      code: profile.code,
+      id: profile.publicId.toUpperCase(),
+      points: points,
+      tier: _tierForPoints(points),
+      mode: 'Block',
+      wins: wins,
+      losses: losses,
+      streak: prefs.getInt('${prefix}_streak') ?? 0,
+    );
+  }
+
+  factory _RankingEntry.fromProfile(
+    DominoPlayerProfile profile, {
+    required int rank,
+    String mode = 'Block',
+  }) {
+    return _RankingEntry(
+      rank: rank,
+      code: profile.code,
+      id: profile.publicId.toUpperCase(),
+      points: 0,
+      tier: rank > 0 ? 'Iron' : 'Unranked',
+      mode: mode,
+      wins: 0,
+      losses: 0,
+      streak: 0,
+    );
+  }
+
+  factory _RankingEntry.fromFirestore(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final points = _intValue(data['totalPoints']);
+    final wins = _intValue(data['roundsWon']);
+    final rounds = _intValue(data['roundsPlayed']);
+    final storedLosses = _intValue(data['roundsLost']);
+    final losses =
+        storedLosses == 0 && rounds > wins ? rounds - wins : storedLosses;
+    final code = _stringValue(data['code'], doc.id).toUpperCase();
+    return _RankingEntry(
+      rank: 0,
+      code: code,
+      id: _stringValue(data['publicId'], code).toUpperCase(),
+      points: points,
+      tier: _tierForPoints(points),
+      mode: _modeLabel(_stringValue(data['lastMode'], 'classic')),
+      wins: wins,
+      losses: losses,
+      streak: _intValue(data['currentStreak']),
+    );
+  }
+
+  _RankingEntry copyWith({int? rank}) {
+    return _RankingEntry(
+      rank: rank ?? this.rank,
+      code: code,
+      id: id,
+      points: points,
+      tier: tier,
+      mode: mode,
+      wins: wins,
+      losses: losses,
+      streak: streak,
+    );
+  }
+
+  static int _intValue(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  static String _stringValue(Object? value, String fallback) {
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    return fallback;
+  }
+
+  static String _modeLabel(String value) {
+    final clean = value.toLowerCase();
+    if (clean.contains('all_fives') || clean.contains('all fives')) {
+      return 'All Fives';
+    }
+    if (clean.contains('draw') || clean.contains('pool')) return 'Draw';
+    return 'Block';
+  }
+
+  static String _tierForPoints(int points) {
+    if (points >= 900) return 'Platinum';
+    if (points >= 500) return 'Gold';
+    if (points >= 250) return 'Silver';
+    if (points >= 100) return 'Bronze';
+    return 'Iron';
+  }
 }
 
-class _TierStyle {
-  const _TierStyle({
-    required this.accentColor,
-    required this.deepColor,
-    required this.icon,
-    required this.level,
-    required this.glow,
-  });
+enum _RankingMode {
+  block('Block'),
+  draw('Draw'),
+  allFives('All Fives');
 
-  final Color accentColor;
-  final Color deepColor;
-  final IconData icon;
-  final int level;
-  final double glow;
+  const _RankingMode(this.label);
 
-  static _TierStyle forTier(String tier) {
-    switch (tier.toLowerCase()) {
-      case 'diamond':
-        return const _TierStyle(
-          accentColor: Color(0xFF7DE7FF),
-          deepColor: Color(0xFF143E69),
-          icon: Icons.diamond_rounded,
-          level: 5,
-          glow: 20,
-        );
-      case 'platinum':
-        return const _TierStyle(
-          accentColor: Color(0xFFBFE8FF),
-          deepColor: Color(0xFF2D4154),
-          icon: Icons.auto_awesome_rounded,
-          level: 4,
-          glow: 16,
-        );
-      case 'gold':
-        return const _TierStyle(
-          accentColor: Color(0xFFFFD36B),
-          deepColor: Color(0xFF6B4A13),
-          icon: Icons.workspace_premium_rounded,
-          level: 3,
-          glow: 12,
-        );
-      case 'silver':
-        return const _TierStyle(
-          accentColor: Color(0xFFC9D4E5),
-          deepColor: Color(0xFF3D4756),
-          icon: Icons.shield_rounded,
-          level: 2,
-          glow: 8,
-        );
-      default:
-        return const _TierStyle(
-          accentColor: Color(0xFFC28B62),
-          deepColor: Color(0xFF5B3828),
-          icon: Icons.military_tech_rounded,
-          level: 1,
-          glow: 6,
-        );
-    }
-  }
+  final String label;
 }

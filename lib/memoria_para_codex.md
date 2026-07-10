@@ -8,9 +8,27 @@ Este documento resume los cambios realizados hoy en el proyecto Kapi Note para q
 
 Fecha de corte: 2026-07-07
 
+Actualizacion 2026-07-10:
+
+- El modo que antes se veia como `Classic beta` ahora debe llamarse **Block beta**.
+- Para referencia visual/reglas, Block corresponde a `Block Dominoes`: no hay pozo/draw; si el jugador no tiene jugada valida, pasa.
+- Cada modo de domino debe vivir en su propio folder separado para no danar otros modos:
+  - `lib/screens/block_dominoes/` para Block.
+  - Draw/Pool debe mantenerse separado cuando se implemente.
+  - All Fives debe mantenerse separado cuando se implemente.
+- Antes de jugar cualquier modo, el jugador debe crear el profile obligatoriamente la primera vez.
+- Despues de creado el profile, si el usuario quiere cambiarlo, se mantiene la regla acordada: cambio por reward ad o Pro.
+- En la pantalla de elegir modo debe existir un boton pequeno/largo `How to play Block` que abra una ayuda verde estilo Block Dominoes explicando las reglas del modo.
+- La pantalla de elegir modo no debe decir `Choose Game Mode`; debe decir `Game Mode` / `Modo de juego`, sin el label pequeno `Game mode`.
+- Los modos visibles en esa pantalla deben ser `All Fives`, `Draw / Pool` y `Block beta`.
+- El boton de ayuda debe cambiar dinamicamente segun el modo seleccionado: `How to play All Fives`, `How to play Draw / Pool` o `How to play Block`.
+- `Draw / Pool` y `All Fives` se muestran como proximamente por ahora; `Block beta` es el modo funcional.
+- El profile no debe usar `JP` como valor demo por defecto. Si no existe profile guardado, debe abrirse un modal obligatorio para entrar 2 iniciales, pais e icono antes de jugar.
+- Version tecnica actualizada para esta tanda: `5.0.36+50`.
+
 - El usuario decidio empezar a llamar esta nueva etapa **Version 2 del app** porque agrega el juego de domino dentro de Kapi Note.
 - Para tiendas, no bajar el numero tecnico de `pubspec.yaml` a `2.0.0` si ya existe una version `5.x` subida; Apple/Google pueden rechazar versiones menores. Usar `v2.0` como nombre interno, tag de Git o nombre de etapa.
-- Version tecnica actual del build: `5.0.7+21`.
+- Version tecnica actual del build: `5.0.36+50`.
 - Tag recomendado de Git para esta copia: `v2.0-game-beta`.
 - Esta etapa incluye:
   - pantalla `Start Game`;
@@ -22,6 +40,13 @@ Fecha de corte: 2026-07-07
   - boton visible para ir y volver entre juego y apuntes/notas;
   - mano del jugador ordenada para mostrar primero fichas jugables;
   - boton `Paso` solo cuando no hay jugada valida, dentro de la barra de mensaje.
+  - boton `Hide/Ocultar` removido del juego classic; la mano del jugador queda visible y la barra de mensaje queda justo arriba de las fichas.
+  - juego Classic muestra ronda/meta en el centro superior de la mesa, usa meta beta de 30 puntos, termina el juego al llegar a la meta y muestra la version debajo del banner/anuncio inferior, no debajo del titulo `Classic beta`.
+  - flujo de juego confirmado: pantalla principal -> Choose Game Mode -> Lobby & Friends -> game board. El boton Continue de Choose Game Mode no debe saltar directo al tablero; primero debe pasar por el lobby.
+  - regla de tranque: si la ronda se bloquea y ambos jugadores tienen la misma cantidad de puntos en fichas, gana quien hizo la ultima jugada que causo el tranque.
+  - regla de salida Classic: en la primera ronda de un juego nuevo sale quien tenga el doble mas alto; si no hay dobles, sale la mejor ficha disponible. Despues de que ya se jugo una ronda con la misma persona, la proxima ronda la abre quien gano la ronda anterior.
+  - mano del jugador: las fichas deben mantener el alto actual, pero ser mas anchas para que se vea completa la ficha aunque se pase un poco del centro.
+  - al terminar el juego completo, la tarjeta de ganador debe mostrar una animacion de confeti cayendo detras del anuncio para que se sienta como cierre de partida.
 
 ## Repositorio
 
@@ -417,3 +442,74 @@ Plan tecnico pendiente para hacerlo real:
 - Se verifico que la pantalla de apuntes mantiene boton visible para regresar al juego; el back superior regreso correctamente al Classic.
 - Online se corrigio para usar `playerId` explicito de la ruta y normalizar IDs en mayusculas. Esto evita que dos telefonos lean lados distintos y se queden en `Waiting for friend...` despues de la primera ficha.
 - Pendiente antes de llamar online estable: probar una partida completa en dos dispositivos reales/emuladores al mismo tiempo, confirmar que el turno cambia en ambos lados y que no se repite el estado `Waiting for friend...`.
+
+## Visual de ranking y perfiles 2026-07-07
+
+- El rango del jugador debe sentirse visible en su perfil: avatar, marco, chip y tarjeta deben compartir el mismo color de liga.
+- Bronze usa tonos bronce; Silver usa tonos plateados; Gold usa dorado; Platinum usa azul claro/brillo premium.
+- CPU y perfiles `Unranked`/`No clasificatorio` no deben recibir marco de liga especial ni parecer clasificados.
+- El panel de ranking debe usar la misma paleta visual que las tarjetas del juego para que el usuario entienda que es el mismo sistema.
+- No inventar ranking contra CPU: el ranking real debe ser para partidas contra amigos/online.
+
+## Lobby / Party social 1 vs 1
+
+- Cuando el usuario presiona `Jugar`, no debe caer directo al tablero si va a jugar online. Primero debe entrar a una pantalla tipo Lobby/Party.
+- El lobby debe sentirse como preparacion de partida 1 vs 1:
+  - Tarjeta principal del jugador al centro o en zona destacada: avatar, iniciales, ranking, pais, ID/hashtag.
+  - Un solo espacio de rival con boton `+` porque domino es 1 vs 1, no un party de 5 personas.
+  - Al tocar `+`, abrir lista de amigos online para invitar.
+  - Si el amigo acepta, ambos entran a la partida online.
+  - Boton principal claro: `Encontrar partida`, para buscar otro jugador disponible.
+  - Boton secundario: `Jugar contra CPU`, como fallback cuando no hay jugador real.
+  - Panel de amigos/solicitudes/invitaciones limpio, inspirado en League of Legends: secciones separadas, estado online/offline, acciones visibles pero sin saturar.
+  - El panel social debe usar tabs, buscador y secciones plegables tipo lista de juego: `Online`, `General`, `Invitaciones`, `Solicitudes` y `Anadir`.
+- Flujo ideal:
+  1. `Start Game`.
+  2. Pantalla Lobby/Party.
+  3. Elegir `Invitar amigo`, `Encontrar partida` o `Jugar contra CPU`.
+  4. Cuando hay rival, entrar al tablero.
+- Primero puede implementarse como mock funcional con datos simulados o datos actuales, y luego conectar completamente con Firebase para invitar, aceptar, matchmaking y presencia online.
+
+## All Fives how-to y errores rojos 2026-07-10
+
+- El modo `All Fives` debe tener su propia ayuda explicando:
+  - Suma de puntas abiertas y puntos cuando el total es multiplo de 5.
+  - Pozo/boneyard: si el jugador esta bloqueado, toma fichas hasta encontrar una jugable.
+  - Spinner: el primer doble puede conectar por cuatro lados.
+  - Final de ronda: se cuentan las fichas restantes y se suman al rival correspondiente.
+- Los chequeos internos de debug para mazo, enlaces y alineacion no deben romper la app con una pantalla roja. Si detectan algo, deben dejar aviso interno y permitir que la app siga visible para poder corregir sin bloquear al usuario.
+
+## Draw e iconos de modos 2026-07-10
+
+- Draw mantiene cuatro paginas de ayuda separadas: objetivo, tomar del pozo, dobles y puntos al final.
+- Los iconos de modos deben ser blancos y distintos: `5` para All Fives, pozo para Draw y bloqueo para Block.
+- Los modos que vienen pronto mantienen su icono principal y muestran un candado pequeno como estado; no reemplazar todos los iconos con el mismo candado.
+
+## Ranking consistente entre dispositivos 2026-07-10
+
+- Todos los dispositivos deben ordenar el ranking igual: puntos descendentes, victorias descendentes, derrotas ascendentes e ID publico alfabetico como desempate final.
+- Un perfil nuevo debe registrarse en la tabla compartida aunque tenga cero puntos. No mantenerlo solamente como una fila local, porque cada telefono terminaria viendo una lista diferente.
+
+## Tabs del ranking por modo 2026-07-10
+
+- El ranking debe mostrar tabs arriba en este orden: `Block`, `Draw`, `All Fives`.
+- Block aparece seleccionado primero.
+- Cada modo mantiene su propia vista y no mezcla jugadores de otros modos.
+- Si un modo no tiene partidas registradas, mostrar un estado vacio claro.
+
+## Ranking: anuncio y modos futuros 2026-07-10
+
+- La pantalla Player Ranking debe mostrar un banner adaptable al pie, usando los IDs existentes de iOS y Android y ocultandose para Pro.
+- Draw y All Fives todavia no estan disponibles. Al tocar sus tabs, mostrar un aviso y mantener Block seleccionado.
+
+## Paleta de ayuda de los modos 2026-07-10
+
+- Las ventanas `How to play` de Block, Draw y All Fives no deben usar el verde brillante del ejemplo externo.
+- Deben integrarse con Kapi Note usando marco borgona oscuro, panel interior carbon azulado, texto blanco y acentos dorados.
+- Los tres modos comparten esta presentacion para mantener consistencia visual.
+
+## Rango consistente en lobby y ranking 2026-07-10
+
+- El lobby no debe usar `Bronze` como valor predeterminado cuando falta el campo `rank` del perfil social.
+- El rango de cada amigo se calcula desde `kapi_player_points.totalPoints`, la misma fuente usada por Player Ranking.
+- Umbrales compartidos: Iron 0-99, Bronze 100-249, Silver 250-499, Gold 500-899 y Platinum desde 900.

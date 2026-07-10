@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/analytics_service.dart';
 import 'domino_online_game_screen.dart';
 import 'domino_player_profile.dart';
 
@@ -17,7 +19,10 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final TextEditingController _friendIdController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
   Timer? _presenceTimer;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _pointsSubscription;
   DominoPlayerProfile _profile = const DominoPlayerProfile(
     initials: 'JP',
     countryCode: 'US',
@@ -26,6 +31,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
   );
   bool _loading = true;
   String? _error;
+  int _socialTab = 0;
+  bool _onlineOpen = true;
+  bool _allFriendsOpen = true;
+  bool _invitesOpen = true;
+  bool _requestsOpen = true;
+  int _playerPoints = 0;
 
   bool get _isSpanish => Localizations.localeOf(context).languageCode == 'es';
   String get _myHashtag => '#${_profile.code.toUpperCase()}';
@@ -39,7 +50,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   void dispose() {
     _presenceTimer?.cancel();
+    unawaited(_pointsSubscription?.cancel());
     _friendIdController.dispose();
+    _searchController.dispose();
     unawaited(_setOffline());
     super.dispose();
   }
@@ -47,11 +60,26 @@ class _LobbyScreenState extends State<LobbyScreen> {
   Future<void> _startLobby() async {
     try {
       final profile = await DominoPlayerProfile.load();
+      final prefs = await SharedPreferences.getInstance();
+      final localPoints =
+          prefs.getInt('kapi_player_points_${profile.code}_total') ?? 0;
       if (!mounted) return;
       setState(() {
         _profile = profile;
+        _playerPoints = localPoints;
         _loading = false;
       });
+      _pointsSubscription = _db
+          .collection('kapi_player_points')
+          .doc(profile.code.toUpperCase())
+          .snapshots()
+          .listen((snapshot) {
+            final cloudPoints = _pointValue(snapshot.data()?['totalPoints']);
+            if (!mounted) return;
+            setState(() {
+              _playerPoints = cloudPoints;
+            });
+          });
       await _upsertPresence();
       _presenceTimer = Timer.periodic(
         const Duration(seconds: 25),
@@ -77,6 +105,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
       'code': code,
       'hashtag': _myHashtag,
       'avatarKey': _profile.avatarKey,
+      'rank': DominoTierVisual.fromScore(_playerPoints).label,
+      'totalPoints': _playerPoints,
       'status': 'online',
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -266,130 +296,597 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   Widget build(BuildContext context) {
     final myId = _profile.publicId.toUpperCase();
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          _isSpanish ? 'Lobby y amigos' : 'Lobby & Friends',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goBackToGameSetup();
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: Colors.white,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            onPressed: _goBackToGameSetup,
           ),
-        ),
-        centerTitle: true,
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF6D0907), Color(0xFF071524)],
+          title: Text(
+            _isSpanish ? 'Lobby y amigos' : 'Lobby & Friends',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
           ),
+          centerTitle: true,
         ),
-        child: SafeArea(
-          child:
-              _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView(
-                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                    children: [
-                      _buildMyIdCard(),
-                      if (_error != null) ...[
-                        const SizedBox(height: 10),
-                        _buildEmptyText(_error!),
-                      ],
-                      const SizedBox(height: 14),
-                      _buildFriendRequestCard(),
-                      const SizedBox(height: 14),
-                      _buildSectionTitle(
-                        _isSpanish ? 'Invitaciones' : 'Game Invites',
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF6D0907), Color(0xFF071524)],
+            ),
+          ),
+          child: SafeArea(
+            child:
+                _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: isTablet ? 720 : 520,
+                        ),
+                        child: ListView(
+                          padding: EdgeInsets.fromLTRB(
+                            isTablet ? 24 : 16,
+                            14,
+                            isTablet ? 24 : 16,
+                            24,
+                          ),
+                          children: [
+                            _buildPartyStage(myId, isTablet),
+                            if (_error != null) ...[
+                              const SizedBox(height: 10),
+                              _buildEmptyText(_error!),
+                            ],
+                            const SizedBox(height: 16),
+                            _buildSocialPanel(myId),
+                          ],
+                        ),
                       ),
-                      _buildGameInvites(myId),
-                      const SizedBox(height: 14),
-                      _buildSectionTitle(
-                        _isSpanish ? 'Solicitudes' : 'Requests',
-                      ),
-                      _buildRequests(myId),
-                      const SizedBox(height: 14),
-                      _buildSectionTitle(_isSpanish ? 'Amigos' : 'Friends'),
-                      _buildFriends(myId),
-                    ],
-                  ),
+                    ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildMyIdCard() {
+  void _goBackToGameSetup() {
+    Navigator.pushReplacementNamed(context, '/start-game');
+  }
+
+  Widget _buildPartyStage(String myId, bool isTablet) {
     final compact = MediaQuery.sizeOf(context).width < 390;
     return Container(
-      padding: EdgeInsets.all(compact ? 12 : 16),
-      decoration: _panelDecoration(),
-      child: Row(
+      padding: EdgeInsets.all(isTablet ? 18 : 14),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(
+          color: const Color(0xFFFFD36B).withValues(alpha: 0.26),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.30),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
         children: [
-          Container(
-            width: compact ? 42 : 48,
-            height: compact ? 42 : 48,
-            decoration: BoxDecoration(
-              color: _profile.color,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFFFD36B)),
+          Text(
+            _isSpanish ? 'Prepara tu partida' : 'Prepare match',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isTablet ? 24 : 20,
+              fontWeight: FontWeight.w900,
             ),
-            child: Icon(_profile.icon, color: Colors.white),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _isSpanish ? 'Tu ID publico' : 'Your public ID',
+          const SizedBox(height: 4),
+          Text(
+            _isSpanish
+                ? 'Invita un amigo o encuentra un rival disponible.'
+                : 'Invite one friend or find an available rival.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.70),
+              fontWeight: FontWeight.w700,
+              fontSize: isTablet ? 14 : 12,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(child: _buildPartyPlayerCard(compact: compact)),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12),
+                child: Text(
+                  'VS',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.70),
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  _profile.publicId.toUpperCase(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
+                    color: const Color(0xFFFFD36B).withValues(alpha: 0.86),
+                    fontSize: compact ? 16 : 18,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  _isSpanish
-                      ? 'Hashtag rapido: $_myHashtag'
-                      : 'Quick hashtag: $_myHashtag',
-                  style: const TextStyle(
-                    color: Color(0xFFFFD36B),
-                    fontWeight: FontWeight.w900,
-                  ),
+              ),
+              Expanded(child: _buildRivalSlot(compact: compact)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: isTablet ? 54 : 48,
+            child: FilledButton.icon(
+              onPressed: _findMatch,
+              icon: const Icon(Icons.travel_explore_rounded),
+              label: Text(
+                _isSpanish ? 'Encontrar partida' : 'Find match',
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE53935),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-              ],
+              ),
             ),
           ),
-          const _OnlinePulse(),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _playCpu,
+                  icon: const Icon(Icons.smart_toy_rounded),
+                  label: Text(_isSpanish ? 'Jugar CPU' : 'Play CPU'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.22),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _shareFriendInvite,
+                  icon: const Icon(Icons.ios_share_rounded),
+                  label: Text(_isSpanish ? 'Compartir ID' : 'Share ID'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                      color: const Color(0xFFFFD36B).withValues(alpha: 0.36),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildFriendRequestCard() {
+  Widget _buildPartyPlayerCard({required bool compact}) {
+    final tierVisual = DominoTierVisual.fromScore(_playerPoints);
+    return Container(
+      constraints: BoxConstraints(minHeight: compact ? 112 : 124),
+      padding: EdgeInsets.all(compact ? 10 : 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            tierVisual.deep.withValues(alpha: 0.76),
+            Colors.black.withValues(alpha: 0.40),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: tierVisual.frameColor(), width: 1.2),
+        boxShadow: tierVisual.shadows(),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _buildAvatarFrame(size: compact ? 46 : 52, visual: tierVisual),
+          const SizedBox(height: 8),
+          Text(
+            _profile.initials,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: compact ? 19 : 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _profile.publicId.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.72),
+              fontSize: compact ? 9 : 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          _buildMiniTierChip(tierVisual),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRivalSlot({required bool compact}) {
+    return InkWell(
+      onTap:
+          () => _showToast(
+            _isSpanish
+                ? 'Elige un amigo online abajo para invitarlo.'
+                : 'Pick an online friend below to invite.',
+          ),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        constraints: BoxConstraints(minHeight: compact ? 112 : 124),
+        padding: EdgeInsets.all(compact ? 10 : 12),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.24),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.18),
+            width: 1.2,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: compact ? 48 : 54,
+              height: compact ? 48 : 54,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFFFD36B)),
+              ),
+              child: const Icon(
+                Icons.add_rounded,
+                color: Color(0xFFFFD36B),
+                size: 30,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _isSpanish ? 'Invitar amigo' : 'Invite friend',
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: compact ? 13 : 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            Text(
+              _isSpanish ? '1 vs 1' : '1 vs 1',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.56),
+                fontSize: compact ? 10 : 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatarFrame({
+    required double size,
+    required DominoTierVisual visual,
+  }) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [visual.accent, visual.avatarBackground(_profile.color)],
+        ),
+        borderRadius: BorderRadius.circular(size * 0.28),
+        border: Border.all(color: visual.frameColor(), width: 1.5),
+        boxShadow: visual.shadows(),
+      ),
+      child: Icon(_profile.icon, color: Colors.white, size: size * 0.54),
+    );
+  }
+
+  Widget _buildMiniTierChip(DominoTierVisual visual) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: visual.accent.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: visual.accent.withValues(alpha: 0.65)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(visual.icon, color: visual.accent, size: 11),
+          const SizedBox(width: 4),
+          Text(
+            visual.label,
+            style: TextStyle(
+              color: visual.accent,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSocialHeader() {
+    return Row(
+      children: [
+        const Icon(Icons.groups_2_rounded, color: Color(0xFFFFD36B), size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _isSpanish ? 'Social' : 'Social',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSocialPanel(String myId) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141414).withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.30),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildSocialHeader(),
+          const SizedBox(height: 10),
+          _buildSocialTabs(),
+          const SizedBox(height: 10),
+          if (_socialTab == 0) ...[
+            _buildSearchField(),
+            const SizedBox(height: 12),
+            _buildCollapsibleHeader(
+              title: _isSpanish ? 'En linea' : 'Online',
+              icon: Icons.circle,
+              accent: const Color(0xFF28C76F),
+              open: _onlineOpen,
+              onTap: () => setState(() => _onlineOpen = !_onlineOpen),
+            ),
+            if (_onlineOpen) _buildFriends(myId, onlineOnly: true),
+            const SizedBox(height: 10),
+            _buildCollapsibleHeader(
+              title: _isSpanish ? 'General' : 'General',
+              icon: Icons.groups_2_rounded,
+              accent: const Color(0xFFFFD36B),
+              open: _allFriendsOpen,
+              onTap: () => setState(() => _allFriendsOpen = !_allFriendsOpen),
+            ),
+            if (_allFriendsOpen) _buildFriends(myId),
+          ] else if (_socialTab == 1) ...[
+            _buildCollapsibleHeader(
+              title: _isSpanish ? 'Invitaciones' : 'Game Invites',
+              icon: Icons.sports_esports_rounded,
+              accent: const Color(0xFFFFD36B),
+              open: _invitesOpen,
+              onTap: () => setState(() => _invitesOpen = !_invitesOpen),
+            ),
+            if (_invitesOpen) _buildGameInvites(myId),
+            const SizedBox(height: 10),
+            _buildCollapsibleHeader(
+              title: _isSpanish ? 'Solicitudes' : 'Requests',
+              icon: Icons.person_add_alt_1_rounded,
+              accent: const Color(0xFF64B5F6),
+              open: _requestsOpen,
+              onTap: () => setState(() => _requestsOpen = !_requestsOpen),
+            ),
+            if (_requestsOpen) _buildRequests(myId),
+          ] else ...[
+            _buildFriendRequestCard(embedded: true),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSocialTabs() {
+    final tabs = [
+      (Icons.format_list_bulleted_rounded, _isSpanish ? 'Amigos' : 'Friends'),
+      (Icons.chat_bubble_outline_rounded, _isSpanish ? 'Invites' : 'Invites'),
+      (Icons.person_add_alt_1_rounded, _isSpanish ? 'Anadir' : 'Add'),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < tabs.length; i++)
+            Expanded(
+              child: InkWell(
+                onTap: () => setState(() => _socialTab = i),
+                borderRadius: BorderRadius.circular(13),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color:
+                        _socialTab == i
+                            ? Colors.white.withValues(alpha: 0.10)
+                            : Colors.transparent,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(
+                        tabs[i].$1,
+                        color:
+                            _socialTab == i
+                                ? Colors.white
+                                : Colors.white.withValues(alpha: 0.78),
+                        size: 20,
+                      ),
+                      Positioned(
+                        bottom: 0,
+                        left: 18,
+                        right: 18,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          height: 3,
+                          decoration: BoxDecoration(
+                            color:
+                                _socialTab == i
+                                    ? const Color(0xFFE53935)
+                                    : Colors.transparent,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      onChanged: (_) => setState(() {}),
+      textCapitalization: TextCapitalization.characters,
+      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+      decoration: InputDecoration(
+        isDense: true,
+        prefixIcon: Icon(
+          Icons.search_rounded,
+          color: Colors.white.withValues(alpha: 0.46),
+        ),
+        hintText: _isSpanish ? 'Buscar' : 'Search',
+        hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.46)),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.08),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCollapsibleHeader({
+    required String title,
+    required IconData icon,
+    required Color accent,
+    required bool open,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          color: open ? Colors.white.withValues(alpha: 0.08) : null,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 15, color: accent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            Icon(
+              open
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.keyboard_arrow_down_rounded,
+              color: Colors.white.withValues(alpha: 0.82),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _findMatch() {
+    _showToast(
+      _isSpanish
+          ? 'Buscando partida llegara pronto. Por ahora invita un amigo o juega CPU.'
+          : 'Matchmaking is coming soon. For now, invite a friend or play CPU.',
+    );
+  }
+
+  void _playCpu() {
+    unawaited(
+      AnalyticsService.logDominoCpuGameStarted(
+        gameMode: 'classic',
+        countryCode: _profile.countryCode,
+        avatarKey: _profile.avatarKey,
+      ),
+    );
+    Navigator.pushNamed(context, '/domino-block');
+  }
+
+  Widget _buildFriendRequestCard({bool embedded = false}) {
     final compact = MediaQuery.sizeOf(context).width < 390;
     return Container(
       padding: EdgeInsets.all(compact ? 12 : 16),
-      decoration: _panelDecoration(),
+      decoration: embedded ? null : _panelDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -542,7 +1039,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
-  Widget _buildFriends(String myId) {
+  Widget _buildFriends(String myId, {bool onlineOnly = false}) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream:
           _db
@@ -569,22 +1066,43 @@ class _LobbyScreenState extends State<LobbyScreen> {
         }
         return Column(
           children: [
-            for (final friendId in friendIds) _buildFriendProfile(friendId),
+            for (final friendId in friendIds)
+              _buildFriendProfile(friendId, onlineOnly: onlineOnly),
           ],
         );
       },
     );
   }
 
-  Widget _buildFriendProfile(String friendId) {
+  Widget _buildFriendProfile(String friendId, {bool onlineOnly = false}) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _db.collection('kapi_lobby_profiles').doc(friendId).snapshots(),
-      builder: (context, snapshot) {
-        final friend = _LobbyFriend.fromProfile(
-          friendId,
-          snapshot.data?.data(),
+      builder: (context, profileSnapshot) {
+        final profileData = profileSnapshot.data?.data();
+        final code =
+            (profileData?['code'] as String?)?.toUpperCase() ??
+            friendId.split('.').last.toUpperCase();
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: _db.collection('kapi_player_points').doc(code).snapshots(),
+          builder: (context, pointsSnapshot) {
+            final friend = _LobbyFriend.fromProfile(
+              friendId,
+              profileData,
+              pointsData: pointsSnapshot.data?.data(),
+            );
+            if (onlineOnly && !friend.online) {
+              return const SizedBox.shrink();
+            }
+            final query = _searchController.text.trim().toUpperCase();
+            if (query.isNotEmpty &&
+                !friend.publicId.toUpperCase().contains(query) &&
+                !friend.initials.toUpperCase().contains(query) &&
+                !friend.rank.toUpperCase().contains(query)) {
+              return const SizedBox.shrink();
+            }
+            return _buildFriendRow(friend);
+          },
         );
-        return _buildFriendRow(friend);
       },
     );
   }
@@ -629,21 +1147,52 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Widget _buildPersonRow(_LobbyFriend friend, {required Widget trailing}) {
     final compact = MediaQuery.sizeOf(context).width < 390;
+    final tierVisual = DominoTierVisual.forLabel(friend.rank);
+    final isPending = friend.rank.toLowerCase() == 'pending';
+    final avatarAccent =
+        isPending
+            ? const Color(0xFFFFD36B)
+            : (tierVisual.isRanked
+                ? tierVisual.accent
+                : (friend.online ? const Color(0xFF1FBF68) : Colors.grey));
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: EdgeInsets.all(compact ? 10 : 12),
       decoration: _panelDecoration(alpha: 0.32),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: compact ? 18 : 20,
-            backgroundColor:
-                friend.online ? const Color(0xFF1FBF68) : Colors.grey,
-            child: Text(
-              friend.initials,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
+          Container(
+            width: compact ? 38 : 42,
+            height: compact ? 38 : 42,
+            decoration: BoxDecoration(
+              gradient:
+                  tierVisual.isRanked
+                      ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [tierVisual.accent, tierVisual.deep],
+                      )
+                      : null,
+              color: tierVisual.isRanked ? null : avatarAccent,
+              shape: BoxShape.circle,
+              border: Border.all(color: avatarAccent.withValues(alpha: 0.90)),
+              boxShadow:
+                  tierVisual.isRanked
+                      ? [
+                        BoxShadow(
+                          color: tierVisual.accent.withValues(alpha: 0.20),
+                          blurRadius: tierVisual.glow,
+                        ),
+                      ]
+                      : null,
+            ),
+            child: Center(
+              child: Text(
+                friend.initials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ),
@@ -679,20 +1228,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 18,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-
   Widget _buildEmptyText(String text) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -722,29 +1257,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   String _requestId({required String fromId, required String toId}) {
     return '${fromId.toUpperCase()}__${toId.toUpperCase()}';
-  }
-}
-
-class _OnlinePulse extends StatelessWidget {
-  const _OnlinePulse();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 12,
-      height: 12,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1FBF68),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF1FBF68).withValues(alpha: 0.65),
-            blurRadius: 12,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -784,7 +1296,11 @@ class _LobbyFriend {
   final bool online;
   final String rank;
 
-  static _LobbyFriend fromProfile(String publicId, Map<String, dynamic>? data) {
+  static _LobbyFriend fromProfile(
+    String publicId,
+    Map<String, dynamic>? data, {
+    Map<String, dynamic>? pointsData,
+  }) {
     final updatedAt = data?['updatedAt'];
     final updatedDate =
         updatedAt is Timestamp ? updatedAt.toDate() : DateTime(2000);
@@ -797,9 +1313,26 @@ class _LobbyFriend {
           (data?['initials'] as String?) ??
           publicId.split('.').first.padRight(2, '?').substring(0, 2),
       online: status == 'online' && isFresh,
-      rank: data?['rank'] as String? ?? 'Bronze',
+      rank:
+          DominoTierVisual.fromScore(
+            _intValue(pointsData?['totalPoints'] ?? data?['totalPoints']),
+          ).label,
     );
   }
+
+  static int _intValue(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
+}
+
+int _pointValue(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value) ?? 0;
+  return 0;
 }
 
 class _GameInvite {

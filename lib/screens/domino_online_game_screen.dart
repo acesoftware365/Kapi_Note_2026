@@ -127,31 +127,99 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen> {
     return showDialog<_BoardSide>(
       context: context,
       builder:
-          (context) => AlertDialog(
-            backgroundColor: const Color(0xFF101820),
-            title: Text(
-              _isSpanish
-                  ? 'Donde quieres poner ${tile.label}?'
-                  : 'Where do you want to play ${tile.label}?',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
+          (context) => SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 26, 16, 0),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xEF101820),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: _gold.withValues(alpha: 0.5),
+                        width: 1.4,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            _DominoWidget(
+                              tile: tile,
+                              vertical: tile.isDouble,
+                              tableSize: 30,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _isSpanish
+                                    ? 'Elige lado para ${tile.label}'
+                                    : 'Choose side for ${tile.label}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(context),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.28),
+                                  ),
+                                ),
+                                child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed:
+                                    () =>
+                                        Navigator.pop(context, _BoardSide.left),
+                                child: Text(_isSpanish ? 'Izquierda' : 'Left'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed:
+                                    () => Navigator.pop(
+                                      context,
+                                      _BoardSide.right,
+                                    ),
+                                child: Text(_isSpanish ? 'Derecha' : 'Right'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, _BoardSide.left),
-                child: Text(_isSpanish ? 'Izquierda' : 'Left'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, _BoardSide.right),
-                child: Text(_isSpanish ? 'Derecha' : 'Right'),
-              ),
-            ],
           ),
     );
   }
@@ -375,8 +443,14 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen> {
     return Row(
       children: [
         IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          onPressed:
+              () => Navigator.pushNamed(
+                context,
+                '/start-game',
+                arguments: {'resumeClassicGame': true},
+              ),
+          tooltip: _isSpanish ? 'Inicio del juego' : 'Game home',
+          icon: const Icon(Icons.home_rounded, color: Colors.white),
         ),
         Expanded(
           child: Text(
@@ -404,6 +478,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen> {
     required bool active,
     bool compact = false,
   }) {
+    final visual = DominoTierVisual.fromScore(0);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       padding: EdgeInsets.symmetric(
@@ -414,7 +489,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen> {
         color: Colors.black.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: active ? _gold : Colors.white.withValues(alpha: 0.18),
+          color: active ? _gold : visual.frameColor(),
           width: active ? 1.5 : 1,
         ),
         boxShadow:
@@ -426,19 +501,31 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen> {
                     spreadRadius: 1,
                   ),
                 ]
-                : null,
+                : visual.shadows(),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(
-            radius: compact ? 14 : 17,
-            backgroundColor: const Color(0xFFFFF2D2),
-            child: Text(
-              initials,
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.w900,
+          Container(
+            width: compact ? 30 : 36,
+            height: compact ? 30 : 36,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [visual.accent, visual.deep],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: visual.frameColor(active: active)),
+              boxShadow: visual.shadows(active: active),
+            ),
+            child: Center(
+              child: Text(
+                initials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ),
@@ -639,6 +726,7 @@ class OnlineGameFactory {
       for (var left = 0; left <= 6; left++)
         for (var right = left; right <= 6; right++) _DominoTile(left, right),
     ]..shuffle(Random());
+    _OnlineGame.debugVerifyDeck(deck);
     final hands = {
       hostId: deck.take(7).toList(),
       cleanGuestId: deck.skip(7).take(7).toList(),
@@ -835,6 +923,7 @@ class _OnlineGame {
       final oriented = tile.left == open ? tile : tile.flipped;
       nextBoard.add(_BoardDomino(oriented, isFirst: false));
     }
+    _OnlineGame.debugVerifyBoardLinks(nextBoard);
     final other = otherPlayerId(clean);
     final next = copyWith(
       hands: nextHands,
@@ -915,6 +1004,37 @@ class _OnlineGame {
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
+
+  static void debugVerifyDeck(List<_DominoTile> deck) {
+    assert(() {
+      final unique = deck.map((tile) => tile.key).toSet();
+      if (deck.length != 28 || unique.length != 28) {
+        debugPrint(
+          'Kapi online deck error: expected 28 unique tiles, '
+          'got ${deck.length} tiles and ${unique.length} unique.',
+        );
+        return false;
+      }
+      return true;
+    }());
+  }
+
+  static void debugVerifyBoardLinks(List<_BoardDomino> board) {
+    assert(() {
+      for (var index = 0; index < board.length - 1; index++) {
+        final current = board[index];
+        final next = board[index + 1];
+        if (current.tile.right != next.tile.left) {
+          debugPrint(
+            'Kapi online board link error at $index: '
+            '${current.tile.label} does not connect to ${next.tile.label}.',
+          );
+          return false;
+        }
+      }
+      return true;
+    }());
+  }
 }
 
 class _OnlineBoard extends StatelessWidget {
@@ -947,7 +1067,10 @@ class _OnlineBoard extends StatelessWidget {
                 left: positions[index].dx,
                 top: positions[index].dy,
                 child: _DominoWidget(
-                  tile: board[index].tile,
+                  tile:
+                      positions[index].flipVisual
+                          ? board[index].tile.flipped
+                          : board[index].tile,
                   vertical: positions[index].vertical,
                   first: board[index].isFirst,
                   tableSize: tileShort * positions[index].scaleFactor,
@@ -974,6 +1097,7 @@ class _OnlineBoard extends StatelessWidget {
       vertical: board[anchorIndex].tile.isDouble,
       direction: _LayoutDirection.right,
       isFirst: true,
+      flipVisual: false,
     );
 
     _layoutSide(
@@ -999,8 +1123,10 @@ class _OnlineBoard extends StatelessWidget {
               vertical: board[index].tile.isDouble,
               direction: _LayoutDirection.right,
               isFirst: board[index].isFirst,
+              flipVisual: false,
             ),
     ];
+    _debugVerifyBoardAlignment(resolved, tileSize);
     final bounds = _logicalBounds(resolved, tileSize);
     final safeWidth = max(1.0, boardSize.width - 8);
     final safeHeight = max(1.0, boardSize.height - 8);
@@ -1015,10 +1141,12 @@ class _OnlineBoard extends StatelessWidget {
       preferred: Offset(boardSize.width / 2, boardSize.height / 2),
     );
 
-    return [
+    final drawPositions = [
       for (final item in resolved)
         _toDrawPosition(item, tileSize, scale, translation),
     ];
+    _debugVerifyDrawAlignment(drawPositions, tileSize);
+    return drawPositions;
   }
 
   Offset _fitTranslation({
@@ -1092,6 +1220,7 @@ class _OnlineBoard extends StatelessWidget {
         vertical: vertical,
         direction: direction,
         isFirst: domino.isFirst,
+        flipVisual: _shouldFlipVisual(side, direction),
       );
       segmentCount++;
       if (segmentCount >= segmentLimit) turnPending = true;
@@ -1135,6 +1264,98 @@ class _OnlineBoard extends StatelessWidget {
     final lineIsVertical =
         direction == _LayoutDirection.up || direction == _LayoutDirection.down;
     return tile.isDouble ? !lineIsVertical : lineIsVertical;
+  }
+
+  bool _shouldFlipVisual(_BoardSide side, _LayoutDirection direction) {
+    if (side == _BoardSide.right) {
+      return direction == _LayoutDirection.left ||
+          direction == _LayoutDirection.up;
+    }
+    return direction == _LayoutDirection.right ||
+        direction == _LayoutDirection.down;
+  }
+
+  void _debugVerifyBoardAlignment(
+    List<_LogicalBoardPosition> positions,
+    Size tileSize,
+  ) {
+    assert(() {
+      const tolerance = 0.01;
+      var isAligned = true;
+      for (var index = 1; index < positions.length; index++) {
+        final previous = positions[index - 1];
+        final current = positions[index];
+        final previousSize = _drawSize(tileSize, previous.vertical);
+        final currentSize = _drawSize(tileSize, current.vertical);
+        final delta = current.center - previous.center;
+        final isHorizontalMove = delta.dx.abs() >= delta.dy.abs();
+        final expectedDistance =
+            isHorizontalMove
+                ? previousSize.width / 2 + currentSize.width / 2
+                : previousSize.height / 2 + currentSize.height / 2;
+        final actualDistance =
+            isHorizontalMove ? delta.dx.abs() : delta.dy.abs();
+        final crossAxisOffset =
+            isHorizontalMove ? delta.dy.abs() : delta.dx.abs();
+        final distanceError = (actualDistance - expectedDistance).abs();
+
+        if (crossAxisOffset > tolerance || distanceError > tolerance) {
+          isAligned = false;
+          debugPrint(
+            'Kapi online alignment warning at $index: '
+            'cross=$crossAxisOffset distance=$distanceError '
+            'previous=${previous.direction} current=${current.direction}',
+          );
+        }
+      }
+      return isAligned;
+    }());
+  }
+
+  void _debugVerifyDrawAlignment(
+    List<_BoardPosition> positions,
+    Size tileSize,
+  ) {
+    assert(() {
+      const tolerance = 0.01;
+      var isAligned = true;
+      for (var index = 1; index < positions.length; index++) {
+        final previous = positions[index - 1];
+        final current = positions[index];
+        final previousSize =
+            _drawSize(tileSize, previous.vertical) * previous.scaleFactor;
+        final currentSize =
+            _drawSize(tileSize, current.vertical) * current.scaleFactor;
+        final previousCenter = Offset(
+          previous.dx + previousSize.width / 2,
+          previous.dy + previousSize.height / 2,
+        );
+        final currentCenter = Offset(
+          current.dx + currentSize.width / 2,
+          current.dy + currentSize.height / 2,
+        );
+        final delta = currentCenter - previousCenter;
+        final isHorizontalMove = delta.dx.abs() >= delta.dy.abs();
+        final expectedDistance =
+            isHorizontalMove
+                ? previousSize.width / 2 + currentSize.width / 2
+                : previousSize.height / 2 + currentSize.height / 2;
+        final actualDistance =
+            isHorizontalMove ? delta.dx.abs() : delta.dy.abs();
+        final crossAxisOffset =
+            isHorizontalMove ? delta.dy.abs() : delta.dx.abs();
+        final distanceError = (actualDistance - expectedDistance).abs();
+
+        if (crossAxisOffset > tolerance || distanceError > tolerance) {
+          isAligned = false;
+          debugPrint(
+            'Kapi online draw alignment warning at $index: '
+            'cross=$crossAxisOffset distance=$distanceError',
+          );
+        }
+      }
+      return isAligned;
+    }());
   }
 
   _LayoutDirection _nextDirection(_LayoutDirection direction, _BoardSide side) {
@@ -1181,6 +1402,7 @@ class _OnlineBoard extends StatelessWidget {
       center.dy - size.height / 2,
       position.vertical,
       scale,
+      position.flipVisual,
     );
   }
 
@@ -1352,6 +1574,7 @@ class _DominoTile {
   bool get isDouble => left == right;
   int get points => left + right;
   String get label => '$left-$right';
+  String get key => left <= right ? '$left-$right' : '$right-$left';
   _DominoTile get flipped => _DominoTile(right, left);
 
   String toText() => '$left-$right';
@@ -1385,12 +1608,19 @@ class _BoardDomino {
 }
 
 class _BoardPosition {
-  const _BoardPosition(this.dx, this.dy, this.vertical, this.scaleFactor);
+  const _BoardPosition(
+    this.dx,
+    this.dy,
+    this.vertical,
+    this.scaleFactor,
+    this.flipVisual,
+  );
 
   final double dx;
   final double dy;
   final bool vertical;
   final double scaleFactor;
+  final bool flipVisual;
 }
 
 class _LogicalBoardPosition {
@@ -1399,12 +1629,14 @@ class _LogicalBoardPosition {
     required this.vertical,
     required this.direction,
     required this.isFirst,
+    required this.flipVisual,
   });
 
   final Offset center;
   final bool vertical;
   final _LayoutDirection direction;
   final bool isFirst;
+  final bool flipVisual;
 }
 
 class _Starter {

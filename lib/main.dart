@@ -20,7 +20,8 @@ import 'screens/legal_acceptance_screen.dart';
 import 'screens/fireworks_screen.dart';
 import 'screens/start_game_screen.dart';
 import 'screens/ranking_screen.dart';
-import 'screens/domino_cpu_game_screen.dart';
+import 'screens/block_dominoes/block_domino_game_screen.dart';
+import 'screens/domino_cpu_game_screen.dart' hide ClassicDominoGameScreen;
 import 'screens/domino_online_game_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'locale_notifier.dart';
@@ -92,6 +93,40 @@ class DominoApp extends StatelessWidget {
     final localeNotifier = Provider.of<LocaleNotifier>(context);
     final themeNotifier = Provider.of<ThemeNotifier>(context);
     final fontSizeNotifier = Provider.of<FontSizeNotifier>(context);
+    const debugInitialRoute = String.fromEnvironment(
+      'KAPI_INITIAL_ROUTE',
+      defaultValue: '/',
+    );
+    final debugRouteEnabled = debugInitialRoute != '/';
+    Widget buildDebugInitialScreen() {
+      switch (debugInitialRoute) {
+        case '/home':
+          return const HomeScreen();
+        case '/legal':
+          return const LegalAcceptanceScreen();
+        case '/settings':
+          return const SettingsScreen();
+        case '/premium':
+          return const PremiumScreen();
+        case '/about':
+          return const AboutScreen();
+        case '/game':
+          return const GameScreen();
+        case '/start-game':
+          return const StartGameScreen();
+        case '/ranking':
+          return const RankingScreen();
+        case '/lobby':
+          return const LobbyScreen();
+        case '/domino-classic':
+        case '/domino-block':
+          return const ClassicDominoGameScreen();
+        case '/domino-draw':
+          return const DrawDominoGameScreen();
+        default:
+          return const SplashScreen();
+      }
+    }
 
     return MaterialApp(
       title: AppLocalizations.of(context)?.appTitle ?? 'Domino Scorer',
@@ -210,7 +245,16 @@ class DominoApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
-      initialRoute: '/',
+      initialRoute: debugRouteEnabled ? null : debugInitialRoute,
+      onGenerateInitialRoutes:
+          debugRouteEnabled
+              ? (_) => [
+                MaterialPageRoute<void>(
+                  builder: (context) => buildDebugInitialScreen(),
+                  settings: RouteSettings(name: debugInitialRoute),
+                ),
+              ]
+              : null,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
         return ForceUpdateGate(child: child);
@@ -226,6 +270,7 @@ class DominoApp extends StatelessWidget {
         '/start-game': (context) => const StartGameScreen(),
         '/ranking': (context) => const RankingScreen(),
         '/lobby': (context) => const LobbyScreen(),
+        '/domino-block': (context) => const ClassicDominoGameScreen(),
         '/domino-classic': (context) => const ClassicDominoGameScreen(),
         '/domino-draw': (context) => const DrawDominoGameScreen(),
         '/domino-online': (context) {

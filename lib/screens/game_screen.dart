@@ -26,10 +26,12 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen> {
+class _GameScreenState extends State<GameScreen>
+    with SingleTickerProviderStateMixin {
   final List<int> _teamAScores = [];
   final List<int> _teamBScores = [];
   List<int>? _lastAddedScores;
+  late final AnimationController _gameButtonPulseController;
 
   // TODO: Replace this test ad unit ID with your own banner ad unit ID.
   final String _adUnitId =
@@ -42,6 +44,10 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void initState() {
     super.initState();
+    _gameButtonPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1050),
+    )..repeat(reverse: true);
     _loadScores();
   }
 
@@ -387,8 +393,61 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   void dispose() {
+    _gameButtonPulseController.dispose();
     _saveScores();
     super.dispose();
+  }
+
+  Widget _buildGameReturnButton(bool openedFromDominoGame) {
+    Widget button = FilledButton.icon(
+      onPressed: () {
+        if (openedFromDominoGame && Navigator.canPop(context)) {
+          Navigator.pop(context);
+          return;
+        }
+        Navigator.pushNamed(context, '/start-game');
+      },
+      icon: const Icon(Icons.sports_esports_rounded, size: 18),
+      label: Text(
+        Localizations.localeOf(context).languageCode == 'es' ? 'Juego' : 'Game',
+      ),
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFFE53935),
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+    );
+
+    if (!openedFromDominoGame) return button;
+
+    return AnimatedBuilder(
+      animation: _gameButtonPulseController,
+      builder: (context, child) {
+        final glow = 0.18 + (_gameButtonPulseController.value * 0.22);
+        final scale = 1.0 + (_gameButtonPulseController.value * 0.035);
+        return Transform.scale(
+          scale: scale,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.white.withValues(alpha: glow),
+                  blurRadius: 14 + (_gameButtonPulseController.value * 6),
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        );
+      },
+      child: button,
+    );
   }
 
   @override
@@ -403,60 +462,21 @@ class _GameScreenState extends State<GameScreen> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Center(
-          child:
-              openedFromDominoGame
-                  ? FilledButton.icon(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.sports_esports_rounded, size: 18),
-                    label: Text(
-                      Localizations.localeOf(context).languageCode == 'es'
-                          ? 'Volver al juego'
-                          : 'Back to game',
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE53935),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 9,
-                      ),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      textStyle: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                  )
-                  : const SizedBox.shrink(),
-        ),
+        title: Center(child: _buildGameReturnButton(openedFromDominoGame)),
         centerTitle: true,
         automaticallyImplyLeading: false,
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(
+        leading:
             openedFromDominoGame
-                ? Icons.arrow_back_rounded
-                : Icons.home_rounded,
-          ),
-          tooltip:
-              openedFromDominoGame
-                  ? 'Back to game'
-                  : appLocalizations.homeScreenTitle,
-          onPressed: () {
-            if (openedFromDominoGame) {
-              Navigator.pop(context);
-            } else {
-              Navigator.pushReplacementNamed(context, '/home');
-            }
-          },
-        ),
+                ? null
+                : IconButton(
+                  icon: const Icon(Icons.home_rounded),
+                  tooltip: appLocalizations.homeScreenTitle,
+                  onPressed:
+                      () => Navigator.pushReplacementNamed(context, '/home'),
+                ),
         actions: [
           // Reset Game Button in AppBar
           TextButton.icon(
