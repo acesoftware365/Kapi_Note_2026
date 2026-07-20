@@ -1,5 +1,13 @@
 # Memoria para Codex
 
+## Teams 2 vs 2 sin selector duplicado (2026-07-20)
+
+- Al continuar con Teams 2 vs 2 ya no se abre el panel intermedio `Choose play mode` con `Play vs CPU` y `Online`.
+- El flujo abre directamente el lobby de Teams, que ya contiene las opciones para jugar con CPU o buscar jugadores online.
+- No se eliminaron las opciones de juego; solamente se retiró la pregunta duplicada anterior al lobby.
+- Solicitud recuperada mediante las capturas de pantalla del usuario.
+- Versión técnica: `5.0.109+124`.
+
 ## Respaldo después de cierre inesperado de Codex (2026-07-20)
 
 - Codex se cerró al intentar cargar de una sola vez el historial extenso de una tarea anterior.

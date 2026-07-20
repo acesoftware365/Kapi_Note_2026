@@ -63,6 +63,12 @@ Este registro fue reconstruido sin abrir el chat que provoca el cierre de Codex.
     - Conservar Find a player, Invite a friend y Play against CPU.
     - Estado: **implementado** en `simple_lobby_screen.dart` y comprobado visualmente.
 
+11. **Eliminar el selector duplicado de Teams 2 vs 2 — recuperado por capturas**
+    - No mostrar `Choose play mode` con `Play vs CPU` y `Online` antes del lobby.
+    - Abrir directamente el lobby de Teams porque esa pantalla ya contiene ambas decisiones.
+    - Conservar las opciones CPU y online dentro del lobby.
+    - Estado: **recuperado e implementado** en `5.0.109+124`.
+
 ## Verificación disponible
 
 - La versión actual es `5.0.108+123`.
