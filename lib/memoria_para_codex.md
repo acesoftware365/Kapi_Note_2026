@@ -1187,6 +1187,16 @@ Plan tecnico pendiente para hacerlo real:
 - Se renovó únicamente el aspecto del lobby de Block: fondo rojo/azul oscuro, estado de conexión, marca VS estilizada y botones verde/gris.
 - No se modificaron las acciones de buscar jugador, invitar amigo ni jugar contra CPU.
 
+## Buzón global de invitaciones (2026-07-20)
+
+- Las invitaciones de Block y Teams 2 vs 2 llegan a un mismo buzón disponible desde cualquier pantalla de la aplicación.
+- Cuando hay invitaciones pendientes aparece un sobre verde iluminado en la barra superior, con una insignia que indica la cantidad recibida.
+- Al tocar el sobre se abre la lista de invitaciones y cada una se puede aceptar o rechazar individualmente.
+- La presencia en línea se mantiene a nivel de toda la aplicación, no solamente dentro de un lobby.
+- Al aceptar una invitación se verifica nuevamente que la sala siga disponible. En Teams se respeta el límite de cuatro jugadores; si ya se llenó, se informa claramente y no se abre una partida incorrecta.
+- Al rechazar una invitación de Block se libera la sala reservada para que ninguno de los jugadores quede bloqueado.
+- Versión: `5.0.112+127`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

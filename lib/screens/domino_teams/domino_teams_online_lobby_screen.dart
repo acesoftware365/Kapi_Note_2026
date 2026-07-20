@@ -15,7 +15,9 @@ import '../simple_lobby/simple_friends_screen.dart';
 import 'domino_teams_cpu_screen.dart';
 
 class DominoTeamsOnlineLobbyScreen extends StatefulWidget {
-  const DominoTeamsOnlineLobbyScreen({super.key});
+  const DominoTeamsOnlineLobbyScreen({super.key, this.initialGameId});
+
+  final String? initialGameId;
 
   @override
   State<DominoTeamsOnlineLobbyScreen> createState() =>
@@ -30,10 +32,7 @@ class _DominoTeamsOnlineLobbyScreenState
 
   late final TeamsOnlineService _service;
   StreamSubscription<TeamsOnlineLobby>? _subscription;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
-  _gameInviteSubscription;
   Timer? _ticker;
-  Timer? _presenceTimer;
   DominoPlayerProfile? _profile;
   TeamsOnlineLobby? _lobby;
   String? _gameId;
@@ -45,7 +44,6 @@ class _DominoTeamsOnlineLobbyScreenState
   bool _finalizing = false;
   bool _openingGame = false;
   bool _allowPop = false;
-  String? _shownInviteId;
   int _lastPlayerCount = 0;
 
   bool get _isSpanish =>
@@ -67,21 +65,7 @@ class _DominoTeamsOnlineLobbyScreenState
   @override
   void dispose() {
     _ticker?.cancel();
-    _presenceTimer?.cancel();
     _subscription?.cancel();
-    _gameInviteSubscription?.cancel();
-    final profile = _profile;
-    if (profile != null) {
-      unawaited(
-        FirebaseFirestore.instance
-            .collection('kapi_lobby_profiles')
-            .doc(profile.publicId.toUpperCase())
-            .set({
-              'status': 'offline',
-              'updatedAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true)),
-      );
-    }
     super.dispose();
   }
 
@@ -100,8 +84,11 @@ class _DominoTeamsOnlineLobbyScreenState
         _playerPoints = points;
         _loadingProfile = false;
       });
-      _startPresence(profile);
-      _listenForTeamInvites(profile);
+      final initialGameId = widget.initialGameId;
+      if (initialGameId != null && initialGameId.isNotEmpty) {
+        setState(() => _gameId = initialGameId);
+        _watchLobby(initialGameId);
+      }
       if (_autoSearchForTesting) unawaited(_join());
     } catch (error) {
       if (!mounted) return;
@@ -110,27 +97,6 @@ class _DominoTeamsOnlineLobbyScreenState
         _error = error.toString();
       });
     }
-  }
-
-  void _startPresence(DominoPlayerProfile profile) {
-    Future<void> heartbeat() => FirebaseFirestore.instance
-        .collection('kapi_lobby_profiles')
-        .doc(profile.publicId.toUpperCase())
-        .set({
-          'publicId': profile.publicId.toUpperCase(),
-          'initials': profile.initials,
-          'countryCode': profile.countryCode,
-          'code': profile.code,
-          'avatarKey': profile.avatarKey,
-          'status': 'online',
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-    unawaited(heartbeat());
-    _presenceTimer?.cancel();
-    _presenceTimer = Timer.periodic(
-      const Duration(seconds: 25),
-      (_) => unawaited(heartbeat()),
-    );
   }
 
   Future<void> _join() async {
@@ -188,100 +154,6 @@ class _DominoTeamsOnlineLobbyScreenState
         unawaited(_tryFinalize());
       }
     });
-  }
-
-  void _listenForTeamInvites(DominoPlayerProfile profile) {
-    unawaited(_gameInviteSubscription?.cancel());
-    _gameInviteSubscription = FirebaseFirestore.instance
-        .collection('kapi_game_invites')
-        .where('toId', isEqualTo: profile.publicId.toUpperCase())
-        .snapshots()
-        .listen((snapshot) {
-          for (final invite in snapshot.docs) {
-            final data = invite.data();
-            if (data['status'] == 'pending' &&
-                data['gameType'] == 'teams2v2' &&
-                invite.id != _shownInviteId) {
-              _shownInviteId = invite.id;
-              unawaited(_showIncomingTeamInvite(invite));
-              break;
-            }
-          }
-        });
-  }
-
-  Future<void> _showIncomingTeamInvite(
-    QueryDocumentSnapshot<Map<String, dynamic>> invite,
-  ) async {
-    if (!mounted || _isSearching) return;
-    final data = invite.data();
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Text(
-              _isSpanish ? 'Invitación Teams 2 vs 2' : 'Teams 2 vs 2 invite',
-            ),
-            content: Text(
-              _isSpanish
-                  ? '${data['fromInitials'] ?? 'Un amigo'} te invitó a su sala.'
-                  : '${data['fromInitials'] ?? 'A friend'} invited you to their room.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(_isSpanish ? 'Rechazar' : 'Decline'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(_isSpanish ? 'Aceptar' : 'Accept'),
-              ),
-            ],
-          ),
-    );
-    if (accepted != true) {
-      await invite.reference.update({
-        'status': 'declined',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      return;
-    }
-    final profile = _profile;
-    final roomId = data['roomId'] as String? ?? '';
-    if (profile == null || roomId.isEmpty) return;
-    final result = await _service.joinInviteLobby(
-      gameId: roomId,
-      profile: profile,
-      points: _playerPoints,
-    );
-    if (!mounted) return;
-    if (result == TeamsInviteJoinResult.joined) {
-      await invite.reference.update({
-        'status': 'accepted',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      setState(() {
-        _gameId = roomId;
-        _joining = false;
-        _error = null;
-      });
-      _watchLobby(roomId);
-      return;
-    }
-    await invite.reference.update({
-      'status':
-          result == TeamsInviteJoinResult.roomFull ? 'roomFull' : 'failed',
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    _showMessage(
-      result == TeamsInviteJoinResult.roomFull
-          ? (_isSpanish
-              ? 'La sala ya está llena.'
-              : 'This room is already full.')
-          : (_isSpanish
-              ? 'La sala ya no está disponible.'
-              : 'This room is no longer available.'),
-    );
   }
 
   Future<void> _inviteFriends() async {

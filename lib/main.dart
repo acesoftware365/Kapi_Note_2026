@@ -46,8 +46,10 @@ import 'legal_acceptance_notifier.dart';
 import 'premium_notifier.dart';
 import 'widgets/force_update_gate.dart';
 import 'widgets/screen_identifier.dart';
+import 'widgets/game_invitation_inbox.dart';
 
 final screenIdentifierObserver = ScreenIdentifierObserver();
+final appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -216,6 +218,7 @@ class _DominoAppState extends State<DominoApp> with WidgetsBindingObserver {
     }
 
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: AppLocalizations.of(context)?.appTitle ?? 'Domino Scorer',
       theme: ThemeData(
         primarySwatch: Colors.blue,
@@ -344,9 +347,12 @@ class _DominoAppState extends State<DominoApp> with WidgetsBindingObserver {
               : null,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        return ScreenIdentifier(
-          routeListenable: screenIdentifierObserver.currentRoute,
-          child: ForceUpdateGate(child: child),
+        return GameInvitationInbox(
+          navigatorKey: appNavigatorKey,
+          child: ScreenIdentifier(
+            routeListenable: screenIdentifierObserver.currentRoute,
+            child: ForceUpdateGate(child: child),
+          ),
         );
       },
       routes: {
@@ -371,8 +377,12 @@ class _DominoAppState extends State<DominoApp> with WidgetsBindingObserver {
         '/domino-classic': (context) => const ClassicDominoGameScreen(),
         '/domino-draw': (context) => const DrawDominoGameScreen(),
         '/domino-teams-cpu': (context) => const DominoTeamsCpuScreen(),
-        '/domino-teams-online-lobby':
-            (context) => const DominoTeamsOnlineLobbyScreen(),
+        '/domino-teams-online-lobby': (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          final initialGameId =
+              args is Map ? args['initialGameId'] as String? : null;
+          return DominoTeamsOnlineLobbyScreen(initialGameId: initialGameId);
+        },
         '/domino-online': (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
           final gameId = args is Map ? args['gameId'] as String? : null;

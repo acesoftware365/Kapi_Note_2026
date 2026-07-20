@@ -34,8 +34,6 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   Timer? _presenceTimer;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _matchSubscription;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _inviteSubscription;
-  String? _shownInviteId;
   String? _activeSearchToken;
 
   late final BlockMatchmakingService _matchmaking = BlockMatchmakingService(
@@ -58,7 +56,6 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   void dispose() {
     _presenceTimer?.cancel();
     unawaited(_matchSubscription?.cancel());
-    unawaited(_inviteSubscription?.cancel());
     final profile = _profile;
     if (_searching && profile != null) {
       unawaited(
@@ -86,7 +83,6 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       const Duration(seconds: 25),
       (_) => unawaited(_upsertPresence(profile)),
     );
-    _listenForInvites(profile);
     if (await _resumeOrReleaseActiveGame(profile)) return;
     const autoMatch = bool.fromEnvironment('KAPI_AUTO_MATCH');
     if (autoMatch) unawaited(_startMatchmaking());
@@ -152,26 +148,6 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       SetOptions(merge: true),
     );
     await batch.commit();
-  }
-
-  void _listenForInvites(DominoPlayerProfile profile) {
-    _inviteSubscription = _db
-        .collection('kapi_game_invites')
-        .where('toId', isEqualTo: profile.publicId.toUpperCase())
-        .snapshots()
-        .listen((snapshot) {
-          for (final doc in snapshot.docs) {
-            final data = doc.data();
-            final gameType = data['gameType'] as String?;
-            if (data['status'] == 'pending' &&
-                (gameType == null || gameType == 'block') &&
-                doc.id != _shownInviteId) {
-              _shownInviteId = doc.id;
-              unawaited(_showIncomingInvite(doc));
-              break;
-            }
-          }
-        });
   }
 
   @override
@@ -668,48 +644,6 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
     );
     _openingGame = false;
     await _upsertPresence(_profile!);
-  }
-
-  Future<void> _showIncomingInvite(
-    QueryDocumentSnapshot<Map<String, dynamic>> invite,
-  ) async {
-    if (!mounted) return;
-    final data = invite.data();
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Text(_isSpanish ? 'Invitacion para jugar' : 'Game invite'),
-            content: Text(
-              _isSpanish
-                  ? '${data['fromInitials'] ?? 'Un amigo'} quiere jugar Block Dominoes contigo.'
-                  : '${data['fromInitials'] ?? 'A friend'} wants to play Block Dominoes with you.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(_isSpanish ? 'Rechazar' : 'Decline'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(_isSpanish ? 'Aceptar' : 'Accept'),
-              ),
-            ],
-          ),
-    );
-    await invite.reference.set({
-      'status': accepted == true ? 'accepted' : 'rejected',
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    if (accepted == true) {
-      await _openOnlineGame(data['gameId'] as String);
-    } else {
-      await BlockRoomService(_db).leaveGame(
-        playerId: data['fromId'] as String,
-        gameId: data['gameId'] as String,
-        reason: 'inviteDeclined',
-      );
-    }
   }
 
   Future<String?> _resolveCode(String raw) async {
