@@ -46,8 +46,9 @@ void main() {
     await tester.tap(find.text('Buy'));
     await tester.pumpAndSettle();
     expect(find.text('Buy Kapi Coins'), findsOneWidget);
-    expect(find.text(r'$1.99'), findsOneWidget);
+    expect(find.text(r'$0.99'), findsOneWidget);
     expect(find.text(r'$2.99'), findsOneWidget);
+    expect(find.text(r'$4.99'), findsOneWidget);
     expect(find.text(r'$9.99'), findsOneWidget);
     expect(find.text(r'$19.99'), findsOneWidget);
     expect(find.text('POPULAR'), findsOneWidget);
@@ -60,13 +61,13 @@ void main() {
     await tester.pump();
     expect(store.balance, 650);
 
-    await tester.tap(find.text('300').first);
+    await tester.tap(find.text('250').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
-    expect(store.balance, 350);
+    expect(store.balance, 400);
     expect(store.equipped(KapiCosmeticType.table).id, 'table_night');
-    expect(find.text('350'), findsOneWidget);
+    expect(find.text('400'), findsWidgets);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('Use'));

@@ -49,10 +49,8 @@ void main() {
     expect(store.revision, 18);
   });
 
-  test('every paid item requires at least fifteen winning hands', () {
-    final firstAffordableBalance =
-        KapiCosmeticsService.welcomeCoins +
-        (15 * KapiCosmeticsService.winReward);
+  test('every paid item respects the balanced starter price floor', () {
+    final firstAffordableBalance = KapiCosmeticsService.welcomeCoins;
     final paidItems = KapiCosmeticsService.catalog.where(
       (item) => item.price > 0,
     );
@@ -311,12 +309,12 @@ void main() {
       final store = KapiCosmeticsService();
       await store.load();
 
-      final visibleItems =
-          KapiCosmeticsService.catalog
-              .where((item) => item.storeVisible)
-              .toList(growable: false);
-      final paidItems =
-          visibleItems.where((item) => item.price > 0).toList(growable: false);
+      final visibleItems = KapiCosmeticsService.catalog
+          .where((item) => item.storeVisible)
+          .toList(growable: false);
+      final paidItems = visibleItems
+          .where((item) => item.price > 0)
+          .toList(growable: false);
       final totalPrice = paidItems.fold<int>(
         0,
         (total, item) => total + item.price,

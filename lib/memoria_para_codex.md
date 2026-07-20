@@ -1215,6 +1215,16 @@ Plan tecnico pendiente para hacerlo real:
 - Los centros de mesa aumentaron de tamaño de forma adaptativa en Block y Teams 2 vs 2, conservando transparencia para no dificultar la lectura de las fichas.
 - Versión: `5.0.114+129`.
 
+## Economía equilibrada de Kapi Shop (2026-07-20)
+
+- El paquete inicial ahora entrega 250 Kapi Coins por US$0.99, suficiente para comprar una mesa, ficha, avatar, panel o centro de mesa sencillo.
+- Los paquetes disponibles son 250 por US$0.99, 800 por US$2.99, 1,500 por US$4.99, 3,300 por US$9.99 y 7,000 por US$19.99. Los paquetes mayores ofrecen progresivamente mejor valor.
+- Las banderas cuestan 150 monedas; los centros de mesa 250–500; los paneles 250–750; los avatares 250–900; las fichas 250–1,000; y las mesas 250–1,100.
+- Ningún artículo visible supera 1,100 monedas. La recompensa de 10 monedas por mano ganada se conserva, al igual que el regalo inicial de 150 monedas.
+- La propiedad y selección de compras anteriores no se modifica. Los cambios afectan solamente los precios futuros.
+- El nuevo producto `kapi_coins_1500` debe crearse en App Store Connect y Google Play Console; los demás identificadores existentes conservan compatibilidad aunque ahora entreguen cantidades balanceadas.
+- Versión: `5.0.115+130`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

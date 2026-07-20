@@ -52,24 +52,29 @@ class PremiumNotifier extends ChangeNotifier {
   static const List<KapiCoinPack> coinPacks = [
     KapiCoinPack(
       productId: 'kapi_coins_300',
-      coins: 300,
-      fallbackPrice: r'$1.99',
+      coins: 250,
+      fallbackPrice: r'$0.99',
     ),
     KapiCoinPack(
       productId: 'kapi_coins_550',
-      coins: 550,
+      coins: 800,
       fallbackPrice: r'$2.99',
     ),
     KapiCoinPack(
-      productId: 'kapi_coins_2000',
-      coins: 2000,
-      fallbackPrice: r'$9.99',
+      productId: 'kapi_coins_1500',
+      coins: 1500,
+      fallbackPrice: r'$4.99',
       badgeEn: 'POPULAR',
       badgeEs: 'POPULAR',
     ),
     KapiCoinPack(
+      productId: 'kapi_coins_2000',
+      coins: 3300,
+      fallbackPrice: r'$9.99',
+    ),
+    KapiCoinPack(
       productId: 'kapi_coins_4500',
-      coins: 4500,
+      coins: 7000,
       fallbackPrice: r'$19.99',
       badgeEn: 'BEST VALUE',
       badgeEs: 'MEJOR VALOR',
