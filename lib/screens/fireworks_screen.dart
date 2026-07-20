@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/review_prompt_service.dart';
-import 'game_screen.dart';
 
 // Particle class to represent individual particles (unchanged)
 class Particle {
@@ -95,12 +94,6 @@ class _FireworksScreenState extends State<FireworksScreen>
       }
     });
 
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        _resetGameNavigation();
-      }
-    });
-
     Future.delayed(const Duration(milliseconds: 900), () {
       unawaited(ReviewPromptService.recordCompletedGameAndMaybeRequestReview());
     });
@@ -123,27 +116,8 @@ class _FireworksScreenState extends State<FireworksScreen>
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('teamAScores');
     await prefs.remove('teamBScores');
-    //this cause an error when press back button
-    //Navigator.popUntil(context, ModalRoute.withName('/home'));
-    // Navigate back to the home screen
-
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        settings: const RouteSettings(name: '/game'),
-        builder: (context) => const GameScreen(),
-      ),
-    );
-
-    //end of reset game navigation
-    /*
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const HomeScreen()),
-    );
-
-     */
+    Navigator.pop(context, true);
   }
 
   void _generateInitialParticles(Size screenSize) {

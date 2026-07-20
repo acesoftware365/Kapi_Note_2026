@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CLIENT_ID</key>
+	<string>374261583168-oee9as0vbgsa5rqc5n7ru06b1bv8m87c.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.374261583168-oee9as0vbgsa5rqc5n7ru06b1bv8m87c</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>374261583168-brkng0c6g6d4a22t0p9ktvncbd2nr54m.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
 	<string>AIzaSyBzvYkoAjPEd6gzpd7Pf5KNkGgSF_DcZfI</string>
 	<key>GCM_SENDER_ID</key>
@@ -9,7 +15,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.liisgo.kapi.note</string>
+	<string>com.liisgo.kapinote</string>
 	<key>PROJECT_ID</key>
 	<string>kapi-dominos</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +31,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:374261583168:ios:97c19b100aaa90e0f4fea5</string>
+	<string>1:374261583168:ios:187954f7e739dc92f4fea5</string>
 </dict>
 </plist>

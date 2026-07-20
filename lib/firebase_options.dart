@@ -48,7 +48,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCeBsqNcTct5KHbOYpwEIhS62whGMbGgi8',
-    appId: '1:374261583168:android:e181c523a4cd2cb5f4fea5',
+    appId: '1:374261583168:android:8abb77eec508797af4fea5',
     messagingSenderId: '374261583168',
     projectId: 'kapi-dominos',
     storageBucket: 'kapi-dominos.firebasestorage.app',
@@ -56,11 +56,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBzvYkoAjPEd6gzpd7Pf5KNkGgSF_DcZfI',
-    appId: '1:374261583168:ios:97c19b100aaa90e0f4fea5',
+    appId: '1:374261583168:ios:187954f7e739dc92f4fea5',
     messagingSenderId: '374261583168',
     projectId: 'kapi-dominos',
     storageBucket: 'kapi-dominos.firebasestorage.app',
-    iosBundleId: 'com.liisgo.kapi.note',
+    iosBundleId: 'com.liisgo.kapinote',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

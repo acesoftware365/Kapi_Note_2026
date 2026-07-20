@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:provider/provider.dart';
 
@@ -16,6 +15,16 @@ class PremiumScreen extends StatefulWidget {
 }
 
 class _PremiumScreenState extends State<PremiumScreen> {
+  static const _ink = Color(0xFF061522);
+  static const _surface = Color(0xFF102838);
+  static const _surfaceDeep = Color(0xFF0A1B29);
+  static const _red = Color(0xFFEF3934);
+  static const _redDark = Color(0xFFAB151A);
+  static const _gold = Color(0xFFFFD166);
+  static const _copy = Color(0xFFBAC8D2);
+  static const _line = Color(0xFF46677B);
+  static const _green = Color(0xFF64E99A);
+
   bool _acceptedTermsForPurchase = false;
 
   @override
@@ -23,73 +32,92 @@ class _PremiumScreenState extends State<PremiumScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final legalAcceptance = context.read<LegalAcceptanceNotifier>();
-      if (legalAcceptance.hasAccepted) {
-        setState(() => _acceptedTermsForPurchase = true);
-      }
-      final premiumNotifier = context.read<PremiumNotifier>();
-      if (!premiumNotifier.isPremium && premiumNotifier.isStoreSupported) {
-        premiumNotifier.loadProducts();
+      final legal = context.read<LegalAcceptanceNotifier>();
+      _acceptedTermsForPurchase = legal.hasAccepted;
+      final premium = context.read<PremiumNotifier>();
+      if (!premium.isPremium && premium.isStoreSupported) {
+        premium.loadProducts();
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
-
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const SizedBox.shrink(),
-        automaticallyImplyLeading: false,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          tooltip: isSpanish ? 'Volver' : 'Back',
-          onPressed: () => _goBack(context),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+      backgroundColor: _ink,
       body: Stack(
         children: [
-          Container(
-            decoration: BoxDecoration(
-              image: DecorationImage(
-                image: const AssetImage('assets/image/background.png'),
-                fit: BoxFit.cover,
-                colorFilter: ColorFilter.mode(
-                  Color.fromARGB((255 * 0.3).round(), 0, 0, 0),
-                  BlendMode.darken,
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [_ink, Color(0xFF091D2B), Color(0xFF061522)],
                 ),
               ),
             ),
           ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0x66000000)
-                      : const Color(0x33FFFFFF),
-                  Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0xAA000000)
-                      : const Color(0x66FFFFFF),
-                ],
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 205,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [_redDark, _red.withValues(alpha: .86), _ink],
+                ),
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(38),
+                ),
               ),
             ),
           ),
           SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 640),
-                  child: _buildPremiumCard(context),
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 68,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: IconButton(
+                          tooltip: 'Back',
+                          onPressed: _goBack,
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          color: Colors.white,
+                          iconSize: 31,
+                        ),
+                      ),
+                      const Text(
+                        'Kapi Note Pro',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -.4,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 640),
+                        child: _buildPremiumCard(context),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -98,254 +126,258 @@ class _PremiumScreenState extends State<PremiumScreen> {
   }
 
   Widget _buildPremiumCard(BuildContext context) {
-    final premiumNotifier = Provider.of<PremiumNotifier>(context);
-    final monthlyProduct = premiumNotifier.monthlyProduct;
-    final yearlyProduct = premiumNotifier.yearlyProduct;
+    final premium = context.watch<PremiumNotifier>();
     final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    final monthly = premium.monthlyProduct;
+    final yearly = premium.yearlyProduct;
 
-    final activeText =
-        isSpanish
-            ? 'Pro activo. Los anuncios están removidos.'
-            : 'Pro active. Ads are removed.';
-    final description =
-        isSpanish
-            ? 'Kapi Note Free sigue funcionando para llevar tus puntos. Pro remueve anuncios y nos ayuda a mejorar la app, crear más herramientas para nuestro hobby del dominó y apoyar a la comunidad.'
-            : 'Kapi Note Free keeps working for scorekeeping. Pro removes ads and helps us improve the app, build more tools for our domino hobby, and support the community.';
-    final unavailableText =
-        isSpanish
-            ? 'No pudimos cargar los productos de la tienda ahora. Puedes seguir usando la app gratis y reintentar más tarde.'
-            : 'We could not load store products right now. You can keep using the app for free and try again later.';
-    final restoreText = isSpanish ? 'Restaurar' : 'Restore';
-
-    return Card(
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: Theme.of(context).cardColor.withValues(
-        alpha: Theme.of(context).brightness == Brightness.dark ? 0.84 : 0.94,
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _surfaceDeep.withValues(alpha: .98),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: _gold.withValues(alpha: .8), width: 1.5),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.workspace_premium_rounded,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 34,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Text(
-                    'Kapi Note Pro',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                if (premiumNotifier.isPremium)
-                  Icon(
-                    Icons.check_circle_rounded,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-              ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHero(premium.isPremium, isSpanish),
+          const SizedBox(height: 20),
+          Text(
+            premium.isPremium
+                ? (isSpanish
+                    ? 'Gracias por apoyar a Kapi Note.'
+                    : 'Thank you for supporting Kapi Note.')
+                : (isSpanish
+                    ? 'Juega sin anuncios y apoya a Kapi Note.'
+                    : 'Play without ads and support Kapi Note.'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: _copy,
+              fontSize: 16,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 14),
-            Text(
-              premiumNotifier.isPremium ? activeText : description,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
+          ),
+          const SizedBox(height: 20),
+          _buildComparison(isSpanish),
+          if (premium.isPremium) ...[
             const SizedBox(height: 18),
-            _buildComparison(context, isSpanish),
-            const SizedBox(height: 12),
-            _buildManageSubscriptionButton(context, premiumNotifier, isSpanish),
-            if (!premiumNotifier.isPremium) ...[
-              const SizedBox(height: 18),
-              if (premiumNotifier.isLoading)
-                Text(
-                  isSpanish ? 'Cargando precios...' : 'Loading prices...',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                )
-              else if (!premiumNotifier.isStoreSupported)
-                Text(
-                  isSpanish
-                      ? 'Las compras Pro no están disponibles en esta plataforma.'
-                      : 'Pro purchases are not available on this platform.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                )
-              else if (!premiumNotifier.canBuyPremium &&
-                  premiumNotifier.isReady)
-                _buildStoreIssue(context, unavailableText)
-              else if (premiumNotifier.isReady &&
-                  monthlyProduct == null &&
-                  yearlyProduct == null)
-                _buildStoreIssue(context, unavailableText)
-              else ...[
-                Text(
-                  isSpanish
-                      ? 'Para suscribirte, elige el plan mensual o anual abajo. La compra se completa dentro del app con ${_storeName()}.'
-                      : 'To subscribe, choose the monthly or yearly plan below. The purchase is completed inside the app with ${_storeName()}.',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+            _buildManageSubscriptionButton(context, isSpanish),
+          ] else ...[
+            const SizedBox(height: 20),
+            if (premium.isLoading && !premium.isReady)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(18),
+                  child: CircularProgressIndicator(color: _gold),
                 ),
-                const SizedBox(height: 12),
-                _buildPurchaseTermsCheckbox(context, isSpanish),
-                const SizedBox(height: 12),
-                _buildPremiumPlanButton(
-                  context: context,
-                  title: isSpanish ? 'Mensual' : 'Monthly',
-                  product: monthlyProduct,
-                  missingProductId: premiumNotifier.currentMonthlyProductId,
-                ),
-                const SizedBox(height: 10),
-                _buildPremiumPlanButton(
-                  context: context,
-                  title: isSpanish ? 'Anual' : 'Yearly',
-                  product: yearlyProduct,
-                  missingProductId: premiumNotifier.currentYearlyProductId,
-                ),
-              ],
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _goBack(context),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: Text(isSpanish ? 'Continuar gratis' : 'Continue free'),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed:
-                      premiumNotifier.isLoading ||
-                              !premiumNotifier.isStoreSupported
-                          ? null
-                          : premiumNotifier.restorePurchases,
-                  icon: const Icon(Icons.restore_rounded),
-                  label: Text(restoreText),
-                ),
-              ),
-            ],
-            if (premiumNotifier.isLoading) ...[
-              const SizedBox(height: 12),
-              const LinearProgressIndicator(),
-            ],
-            if (premiumNotifier.errorMessage != null) ...[
-              const SizedBox(height: 12),
+              )
+            else if (!premium.isStoreSupported)
+              _buildInfoNotice(
+                icon: Icons.storefront_outlined,
+                text:
+                    isSpanish
+                        ? 'Las compras no están disponibles en este dispositivo.'
+                        : 'Purchases are not available on this device.',
+              )
+            else if (!premium.canBuyPremium)
+              _buildStoreIssue(context, isSpanish)
+            else ...[
               Text(
-                premiumNotifier.errorMessage!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.error,
+                isSpanish
+                    ? 'Elige tu plan. La compra se completa de forma segura en la tienda de tu dispositivo.'
+                    : 'Choose a plan. Your purchase is completed securely in your device store.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _copy,
+                  fontSize: 14,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
                 ),
+              ),
+              const SizedBox(height: 15),
+              _buildPurchaseTermsCheckbox(context, isSpanish),
+              const SizedBox(height: 16),
+              _buildPremiumPlanButton(
+                context: context,
+                title: isSpanish ? 'Mensual' : 'Monthly',
+                product: monthly,
+              ),
+              const SizedBox(height: 11),
+              _buildPremiumPlanButton(
+                context: context,
+                title: isSpanish ? 'Anual' : 'Yearly',
+                product: yearly,
+              ),
+              const SizedBox(height: 8),
+              _buildTextAction(
+                label: isSpanish ? 'Continuar gratis' : 'Continue free',
+                icon: Icons.play_arrow_rounded,
+                onPressed: _goBack,
+              ),
+              _buildTextAction(
+                label: isSpanish ? 'Restaurar compras' : 'Restore purchases',
+                icon: Icons.restore_rounded,
+                onPressed:
+                    premium.isLoading ? null : () => premium.restorePurchases(),
               ),
             ],
           ],
-        ),
+          if (premium.isLoading && premium.isReady) ...[
+            const SizedBox(height: 16),
+            const LinearProgressIndicator(color: _gold, backgroundColor: _line),
+          ],
+        ],
       ),
     );
   }
 
-  void _goBack(BuildContext context) {
-    if (Navigator.canPop(context)) {
-      Navigator.pop(context);
-      return;
-    }
-    Navigator.pushReplacementNamed(context, '/home');
+  Widget _buildHero(bool isPremium, bool isSpanish) {
+    return Column(
+      children: [
+        Container(
+          width: 66,
+          height: 66,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              colors: [_gold, Color(0xFFD79C2C)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black54,
+                blurRadius: 14,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.workspace_premium_rounded,
+            color: _ink,
+            size: 37,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          isPremium
+              ? (isSpanish ? 'Kapi Note Pro activo' : 'Kapi Note Pro active')
+              : 'Kapi Note Pro',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 27,
+            letterSpacing: -.5,
+          ),
+        ),
+        if (isPremium) ...[
+          const SizedBox(height: 7),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+            decoration: BoxDecoration(
+              color: _green.withValues(alpha: .14),
+              border: Border.all(color: _green.withValues(alpha: .8)),
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Text(
+              isSpanish ? 'SIN ANUNCIOS' : 'AD-FREE',
+              style: const TextStyle(
+                color: _green,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .8,
+                fontSize: 11,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
-  Widget _buildComparison(BuildContext context, bool isSpanish) {
-    final freeItems =
-        isSpanish
-            ? [
-              'Marcador usable',
-              'Ajustes de juego',
-              'Compartir app',
-              'Incluye anuncios',
-            ]
-            : [
-              'Usable scorekeeper',
-              'Game settings',
-              'Share app',
-              'Includes ads',
-            ];
-    final proItems =
-        isSpanish
-            ? [
-              'Sin anuncios',
-              'Uso ilimitado sin interrupciones de ads',
-              'Herramientas y plantillas premium cuando estén disponibles',
-              'Apoya a una compañía pequeña que crea apps útiles',
-            ]
-            : [
-              'No ads',
-              'Unlimited use without ad interruptions',
-              'Premium tools and templates when available',
-              'Supports a small company building useful apps',
-            ];
-
+  Widget _buildComparison(bool isSpanish) {
+    final free = [
+      isSpanish ? 'Marcador de dominó' : 'Domino scorekeeper',
+      isSpanish ? 'Configuración de juego' : 'Game settings',
+      isSpanish ? 'Anuncios incluidos' : 'Includes ads',
+    ];
+    final pro = [
+      isSpanish ? 'Sin anuncios' : 'No ads',
+      isSpanish ? 'Juego sin interrupciones' : 'Play without interruptions',
+      isSpanish ? 'Funciones Pro al estar disponibles' : 'Future Pro features',
+      isSpanish ? 'Apoyas una app independiente' : 'Support an independent app',
+    ];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 560;
-        final children = [
-          _buildFeatureColumn(context, isSpanish ? 'Free' : 'Free', freeItems),
-          _buildFeatureColumn(context, 'Pro', proItems),
+        final cards = [
+          _buildFeatureColumn(isSpanish ? 'Free' : 'Free', free, false),
+          _buildFeatureColumn('Pro', pro, true),
         ];
-
-        if (wide) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: children[0]),
-              const SizedBox(width: 12),
-              Expanded(child: children[1]),
-            ],
+        if (constraints.maxWidth < 470) {
+          return Column(
+            children: [cards[0], const SizedBox(height: 12), cards[1]],
           );
         }
-
-        return Column(
-          children: [children[0], const SizedBox(height: 12), children[1]],
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: cards[0]),
+            const SizedBox(width: 12),
+            Expanded(child: cards[1]),
+          ],
         );
       },
     );
   }
 
-  Widget _buildFeatureColumn(
-    BuildContext context,
-    String title,
-    List<String> items,
-  ) {
+  Widget _buildFeatureColumn(String title, List<String> features, bool isPro) {
+    final color = isPro ? _gold : _copy;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
-        ),
+        color: _surface.withValues(alpha: .7),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: isPro ? _gold.withValues(alpha: .7) : _line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              fontSize: 21,
+            ),
           ),
-          const SizedBox(height: 8),
-          for (final item in items)
+          const SizedBox(height: 10),
+          for (final feature in features)
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.only(bottom: 8),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.check_rounded, size: 18),
-                  const SizedBox(width: 6),
-                  Expanded(child: Text(item)),
+                  Icon(Icons.check_circle_rounded, color: color, size: 18),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      feature,
+                      style: const TextStyle(
+                        color: _copy,
+                        fontSize: 13,
+                        height: 1.25,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -354,99 +386,154 @@ class _PremiumScreenState extends State<PremiumScreen> {
     );
   }
 
-  Widget _buildStoreIssue(BuildContext context, String text) {
-    final premiumNotifier = Provider.of<PremiumNotifier>(
-      context,
-      listen: false,
-    );
-    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(text, style: Theme.of(context).textTheme.bodyMedium),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: premiumNotifier.loadProducts,
-          icon: const Icon(Icons.refresh_rounded),
-          label: Text(isSpanish ? 'Reintentar cargar precios' : 'Retry prices'),
-        ),
-      ],
+  Widget _buildInfoNotice({required IconData icon, required String text}) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _line),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _gold),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: _copy, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildManageSubscriptionButton(
-    BuildContext context,
-    PremiumNotifier premiumNotifier,
-    bool isSpanish,
-  ) {
-    if (!premiumNotifier.isStoreSupported) {
-      return const SizedBox.shrink();
-    }
-    if (!premiumNotifier.isPremium && premiumNotifier.activeProductId == null) {
-      return const SizedBox.shrink();
-    }
-
-    return OutlinedButton.icon(
-      onPressed:
-          () => _openSubscriptionSettings(
-            context,
-            premiumNotifier.activeProductId,
-            isSpanish,
+  Widget _buildStoreIssue(BuildContext context, bool isSpanish) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _redDark.withValues(alpha: .22),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _red.withValues(alpha: .75)),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.cloud_off_rounded, color: _gold, size: 30),
+          const SizedBox(height: 7),
+          Text(
+            isSpanish
+                ? 'La tienda no está disponible por ahora.'
+                : 'The store is not available right now.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
           ),
-      icon: const Icon(Icons.manage_accounts_rounded),
-      label: Text(
-        isSpanish
-            ? 'Administrar o cancelar suscripción'
-            : 'Manage or cancel subscription',
+          const SizedBox(height: 4),
+          Text(
+            isSpanish
+                ? 'Puedes continuar usando Kapi Note gratis e intentar nuevamente más tarde.'
+                : 'You can keep using Kapi Note free and try again later.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: _copy, height: 1.3),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => context.read<PremiumNotifier>().loadProducts(),
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(isSpanish ? 'Intentar otra vez' : 'Try again'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: _gold),
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildManageSubscriptionButton(BuildContext context, bool isSpanish) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: _openSubscriptionSettings,
+        icon: const Icon(Icons.manage_accounts_outlined),
+        label: Text(
+          isSpanish ? 'Gestionar suscripción' : 'Manage subscription',
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _gold,
+          side: const BorderSide(color: _gold),
+          shape: const StadiumBorder(),
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        ),
       ),
     );
   }
 
   Widget _buildPurchaseTermsCheckbox(BuildContext context, bool isSpanish) {
-    final textTheme = Theme.of(context).textTheme;
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.45),
-        ),
+        color: _surface.withValues(alpha: .7),
+        border: Border.all(color: _line),
+        borderRadius: BorderRadius.circular(17),
       ),
       child: CheckboxListTile(
         value: _acceptedTermsForPurchase,
+        activeColor: _gold,
+        checkColor: _ink,
         controlAffinity: ListTileControlAffinity.leading,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-        onChanged: (value) {
-          setState(() => _acceptedTermsForPurchase = value ?? false);
-        },
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         title: Text(
           isSpanish
-              ? 'Acepto los Terms & Conditions y Privacy Policy antes de suscribirme a Pro.'
-              : 'I agree to the Terms & Conditions and Privacy Policy before subscribing to Pro.',
-          style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+              ? 'Acepto los Términos y Condiciones y la Política de Privacidad.'
+              : 'I agree to the Terms & Conditions and Privacy Policy.',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+            height: 1.25,
+          ),
         ),
         subtitle: Wrap(
-          spacing: 8,
-          runSpacing: 0,
+          spacing: 4,
           children: [
             TextButton(
               onPressed:
                   () => _showLegalSheet(
-                    LegalContent.termsTitle,
+                    context,
+                    isSpanish ? 'Términos y Condiciones' : 'Terms & Conditions',
                     LegalContent.termsBody,
                   ),
-              child: const Text(LegalContent.termsTitle),
+              child: Text(isSpanish ? 'Leer términos' : 'Read terms'),
             ),
             TextButton(
               onPressed:
                   () => _showLegalSheet(
-                    LegalContent.privacyTitle,
+                    context,
+                    isSpanish ? 'Política de Privacidad' : 'Privacy Policy',
                     LegalContent.privacyBody,
                   ),
-              child: const Text(LegalContent.privacyTitle),
+              child: Text(isSpanish ? 'Privacidad' : 'Privacy'),
             ),
           ],
         ),
+        onChanged: (value) async {
+          final accepted = value ?? false;
+          setState(() => _acceptedTermsForPurchase = accepted);
+          if (accepted) {
+            await context.read<LegalAcceptanceNotifier>().accept();
+          }
+        },
       ),
     );
   }
@@ -455,133 +542,132 @@ class _PremiumScreenState extends State<PremiumScreen> {
     required BuildContext context,
     required String title,
     required ProductDetails? product,
-    required String missingProductId,
   }) {
-    final premiumNotifier = Provider.of<PremiumNotifier>(
-      context,
-      listen: false,
-    );
+    final premium = context.watch<PremiumNotifier>();
     final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    final enabled =
+        product != null && !premium.isLoading && _acceptedTermsForPurchase;
     final label =
         product == null
-            ? '$title - ${isSpanish ? 'no disponible' : 'not available'}'
-            : '$title - ${product.price}';
-
+            ? '$title · ${isSpanish ? 'Próximamente' : 'Coming soon'}'
+            : '$title · ${product.price}';
     return SizedBox(
       width: double.infinity,
-      child: FilledButton.icon(
-        onPressed:
-            premiumNotifier.isLoading
-                ? null
-                : () {
-                  if (product == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isSpanish
-                              ? 'La tienda no devolvió el producto $missingProductId. Revisa que exista y esté aprobado.'
-                              : 'The store did not return $missingProductId. Check that it exists and is approved.',
-                        ),
-                      ),
-                    );
-                    premiumNotifier.loadProducts();
-                    return;
-                  }
-                  if (!_acceptedTermsForPurchase) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isSpanish
-                              ? 'Acepta los Terms & Conditions y Privacy Policy antes de suscribirte a Pro.'
-                              : 'Please accept the Terms & Conditions and Privacy Policy before subscribing to Pro.',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-                  context.read<LegalAcceptanceNotifier>().accept();
-                  premiumNotifier.buy(product);
-                },
+      child: ElevatedButton.icon(
+        onPressed: enabled ? () => premium.buy(product) : null,
         icon: const Icon(Icons.workspace_premium_rounded),
-        label: Text(
-          label,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+        label: Text(label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _red,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: _surface,
+          disabledForegroundColor: _copy.withValues(alpha: .65),
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
         ),
       ),
     );
   }
 
-  void _showLegalSheet(String title, String body) {
+  Widget _buildTextAction({
+    required String label,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return TextButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: _gold,
+        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+
+  void _showLegalSheet(BuildContext context, String title, String content) {
     showModalBottomSheet<void>(
       context: context,
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-            child: FractionallySizedBox(
-              heightFactor: 0.78,
+      builder:
+          (context) => SafeArea(
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 620),
+              padding: const EdgeInsets.fromLTRB(22, 16, 22, 22),
+              decoration: const BoxDecoration(
+                color: _surfaceDeep,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border(top: BorderSide(color: _gold)),
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
+                  Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: _line,
+                      borderRadius: BorderRadius.circular(99),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded),
+                        color: _gold,
+                      ),
+                    ],
+                  ),
+                  const Divider(color: _line),
                   Expanded(
                     child: SingleChildScrollView(
                       child: Text(
-                        body,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodyMedium?.copyWith(height: 1.45),
+                        content,
+                        style: const TextStyle(color: _copy, height: 1.45),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Done'),
                   ),
                 ],
               ),
             ),
           ),
-        );
-      },
     );
   }
 
-  Future<void> _openSubscriptionSettings(
-    BuildContext context,
-    String? productId,
-    bool isSpanish,
-  ) async {
-    final opened = await SubscriptionManagementService.openSubscriptionSettings(
-      productId: productId,
-    );
-    if (!context.mounted || opened) return;
-
+  Future<void> _openSubscriptionSettings() async {
+    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    final opened =
+        await SubscriptionManagementService.openSubscriptionSettings();
+    if (!mounted || opened) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           isSpanish
-              ? 'No pudimos abrir la página de suscripciones. Ábrela desde ${_storeName()}.'
-              : 'We could not open subscription settings. Open them from ${_storeName()}.',
+              ? 'No pudimos abrir la gestión de suscripción en este dispositivo.'
+              : 'We could not open subscription management on this device.',
         ),
       ),
     );
   }
 
-  String _storeName() {
-    return defaultTargetPlatform == TargetPlatform.iOS
-        ? 'App Store'
-        : 'Google Play';
+  void _goBack() {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pushReplacementNamed('/home');
+    }
   }
 }

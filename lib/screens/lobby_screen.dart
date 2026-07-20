@@ -613,7 +613,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
         border: Border.all(color: visual.frameColor(), width: 1.5),
         boxShadow: visual.shadows(),
       ),
-      child: Icon(_profile.icon, color: Colors.white, size: size * 0.54),
+      clipBehavior: Clip.antiAlias,
+      child: DominoAvatarVisual(
+        avatarKey: _profile.avatarKey,
+        fallbackIcon: _profile.icon,
+        backgroundColor: visual.avatarBackground(_profile.color),
+      ),
     );
   }
 

@@ -1,7 +1,5 @@
 // lib/screens/splash_screen.dart
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -15,23 +13,8 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final prefs = await SharedPreferences.getInstance();
-      final String? teamAJson = prefs.getString('teamAScores');
-      final String? teamBJson = prefs.getString('teamBScores');
-      bool hasSavedScores = false;
-      if (teamAJson != null) {
-        final List<dynamic> decoded = jsonDecode(teamAJson);
-        hasSavedScores = decoded.isNotEmpty;
-      }
-      if (!hasSavedScores && teamBJson != null) {
-        final List<dynamic> decoded = jsonDecode(teamBJson);
-        hasSavedScores = decoded.isNotEmpty;
-      }
       if (!mounted) return;
-      Navigator.pushReplacementNamed(
-        context,
-        hasSavedScores ? '/game' : '/home',
-      );
+      Navigator.pushReplacementNamed(context, '/home');
     });
   }
 

@@ -11,8 +11,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../premium_notifier.dart';
 import '../services/analytics_service.dart';
+import '../services/player_account_service.dart';
+import 'player_account_screen.dart';
 import '../widgets/anchored_adaptive_banner_ad.dart';
-import '../widgets/app_version_label.dart';
 import 'admob_variable.dart';
 import 'domino_player_profile.dart';
 
@@ -79,15 +80,6 @@ class _StartGameScreenState extends State<StartGameScreen> {
     _CountryOption('AU', 'Australia', 'Australia'),
   ];
 
-  static const List<_AvatarOption> _avatarOptions = [
-    _AvatarOption('person', Icons.person_rounded, Color(0xFF1E88E5)),
-    _AvatarOption('woman', Icons.face_3_rounded, Color(0xFFE91E63)),
-    _AvatarOption('robot', Icons.smart_toy_rounded, Color(0xFF26C6DA)),
-    _AvatarOption('rainbow', Icons.auto_awesome_rounded, Color(0xFFC28B62)),
-    _AvatarOption('game', Icons.sports_esports_rounded, Color(0xFF43A047)),
-    _AvatarOption('star', Icons.star_rounded, Color(0xFFFFB300)),
-  ];
-
   bool get _isSpanish => Localizations.localeOf(context).languageCode == 'es';
 
   String get _playerInitials {
@@ -104,6 +96,7 @@ class _StartGameScreenState extends State<StartGameScreen> {
     GameMode.block => 'block',
     GameMode.draw => 'draw_pool',
     GameMode.allFives => 'all_fives',
+    GameMode.teams => 'teams_2v2_cpu',
   };
 
   String get _selectedModeTitle {
@@ -114,17 +107,21 @@ class _StartGameScreenState extends State<StartGameScreen> {
         return _isSpanish ? 'Draw / Pozo' : 'Draw / Pool';
       case GameMode.allFives:
         return 'All Fives';
+      case GameMode.teams:
+        return 'Teams 2 vs 2';
     }
   }
 
   String get _selectedModeHelpButtonText =>
       _isSpanish
-          ? 'Como jugar $_selectedModeTitle'
+          ? 'Cómo jugar $_selectedModeTitle'
           : 'How to play $_selectedModeTitle';
 
-  _AvatarOption get _selectedAvatar => _avatarOptions.firstWhere(
-    (avatar) => avatar.key == _selectedAvatarKey,
-    orElse: () => _avatarOptions.first,
+  DominoPlayerProfile get _selectedAvatarProfile => DominoPlayerProfile(
+    initials: _playerInitials,
+    countryCode: _selectedCountryCode,
+    code: _playerCodeController.text,
+    avatarKey: _selectedAvatarKey,
   );
 
   String get _adUnitId =>
@@ -221,17 +218,20 @@ class _StartGameScreenState extends State<StartGameScreen> {
             ),
           ),
           SafeArea(
+            bottom: false,
             child: Column(
               children: [
                 Expanded(
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final isTablet = constraints.maxWidth >= 720;
+                      final isCompact =
+                          !isTablet && constraints.maxHeight < 720;
                       return Center(
                         child: SingleChildScrollView(
                           padding: EdgeInsets.symmetric(
                             horizontal: isTablet ? 48 : 20,
-                            vertical: 22,
+                            vertical: isCompact ? 8 : 18,
                           ),
                           child: ConstrainedBox(
                             constraints: BoxConstraints(
@@ -240,9 +240,11 @@ class _StartGameScreenState extends State<StartGameScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                _buildHeader(isTablet),
-                                SizedBox(height: isTablet ? 28 : 20),
-                                _buildSetupPanel(isTablet),
+                                _buildHeader(isTablet, isCompact),
+                                SizedBox(
+                                  height: isTablet ? 28 : (isCompact ? 8 : 14),
+                                ),
+                                _buildSetupPanel(isTablet, isCompact),
                               ],
                             ),
                           ),
@@ -251,13 +253,13 @@ class _StartGameScreenState extends State<StartGameScreen> {
                     },
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
+                  child: _buildContinueButton(isTablet: false),
+                ),
                 AnchoredAdaptiveBannerAd(
                   adUnitId: _adUnitId,
                   margin: EdgeInsets.zero,
-                ),
-                const AppVersionLabel(
-                  padding: EdgeInsets.only(top: 6, bottom: 8),
-                  fontSize: 10,
                 ),
               ],
             ),
@@ -267,34 +269,47 @@ class _StartGameScreenState extends State<StartGameScreen> {
     );
   }
 
-  Widget _buildHeader(bool isTablet) {
-    return Column(
+  Widget _buildHeader(bool isTablet, bool isCompact) {
+    return Row(
       children: [
-        Text(
-          _isSpanish ? 'Modo de juego' : 'Game Mode',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: isTablet ? 46 : 32,
-            fontWeight: FontWeight.w900,
-            height: 1.05,
-            letterSpacing: 0,
-            shadows: const [
-              Shadow(
-                blurRadius: 18,
-                color: Colors.black54,
-                offset: Offset(0, 8),
-              ),
-            ],
+        Expanded(
+          child: Text(
+            _isSpanish ? 'Modo de juego' : 'Game Mode',
+            textAlign: TextAlign.left,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isTablet ? 46 : (isCompact ? 25 : 30),
+              fontWeight: FontWeight.w900,
+              height: 1.05,
+              letterSpacing: 0,
+              shadows: const [
+                Shadow(
+                  blurRadius: 18,
+                  color: Colors.black54,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        IconButton.outlined(
+          onPressed: () => Navigator.pushNamed(context, '/ranking'),
+          tooltip: _isSpanish ? 'Ranking de puntos' : 'Points Ranking',
+          icon: const Icon(Icons.leaderboard_rounded),
+          color: Colors.white,
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.black.withValues(alpha: 0.22),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildSetupPanel(bool isTablet) {
+  Widget _buildSetupPanel(bool isTablet, bool isCompact) {
     return Container(
-      padding: EdgeInsets.all(isTablet ? 22 : 16),
+      padding: EdgeInsets.all(isTablet ? 22 : (isCompact ? 10 : 14)),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(24),
@@ -303,106 +318,129 @@ class _StartGameScreenState extends State<StartGameScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildProfileButton(isTablet),
-          const SizedBox(height: 16),
+          _buildProfileButton(isTablet, compact: isCompact),
+          SizedBox(height: isCompact ? 8 : 12),
+          _buildModeCard(
+            mode: GameMode.block,
+            icon: Icons.view_module_rounded,
+            title: 'Block',
+            subtitle: _isSpanish ? 'Bloqueo sin pozo' : 'Block without draw',
+            isTablet: isTablet,
+            compact: isCompact,
+          ),
+          SizedBox(height: isCompact ? 6 : 8),
+          _buildModeCard(
+            mode: GameMode.teams,
+            icon: Icons.groups_2_rounded,
+            title: 'Teams 2 vs 2',
+            subtitle:
+                _isSpanish
+                    ? 'Tú y un compañero contra dos CPU'
+                    : 'You and a partner against two CPUs',
+            isTablet: isTablet,
+            compact: isCompact,
+          ),
+          SizedBox(height: isCompact ? 8 : 12),
+          _buildHowToPlayCard(isTablet, compact: isCompact),
+          SizedBox(height: isCompact ? 6 : 8),
           _buildModeCard(
             mode: GameMode.allFives,
             icon: Icons.filter_5_rounded,
             title: 'All Fives',
-            subtitle:
-                _isSpanish
-                    ? 'Puntos por multiplos de 5'
-                    : 'Score multiples of 5',
+            subtitle: _isSpanish ? 'Próximamente' : 'Coming soon',
             isTablet: isTablet,
+            compact: isCompact,
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: isCompact ? 6 : 8),
           _buildModeCard(
             mode: GameMode.draw,
             icon: Icons.inventory_2_rounded,
-            title: _isSpanish ? 'Draw / Pozo' : 'Draw / Pool',
-            subtitle:
-                _isSpanish ? 'Toma fichas del pozo' : 'Draw from the pool',
+            title: _isSpanish ? 'Robo / Pozo' : 'Draw / Pool',
+            subtitle: _isSpanish ? 'Próximamente' : 'Coming soon',
             isTablet: isTablet,
-          ),
-          const SizedBox(height: 10),
-          _buildModeCard(
-            mode: GameMode.block,
-            icon: Icons.block_rounded,
-            title: 'Block beta',
-            subtitle: _isSpanish ? 'Bloqueo sin pozo' : 'Block without draw',
-            isTablet: isTablet,
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: isTablet ? 54 : 46,
-            child: OutlinedButton.icon(
-              onPressed: _showSelectedModeHowToPlay,
-              icon: Icon(Icons.help_outline_rounded, size: isTablet ? 22 : 18),
-              label: Text(
-                _selectedModeHelpButtonText,
-                style: TextStyle(
-                  fontSize: isTablet ? 16 : 13,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                backgroundColor: const Color(0xFF063D2D).withValues(alpha: 0.5),
-                side: const BorderSide(color: Color(0xFFFFD36B)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: isTablet ? 58 : 50,
-            child: OutlinedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/ranking'),
-              icon: Icon(Icons.leaderboard_rounded, size: isTablet ? 24 : 20),
-              label: Text(
-                _isSpanish ? 'Ranking de puntos' : 'Points Ranking',
-                style: TextStyle(
-                  fontSize: isTablet ? 17 : 14,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                backgroundColor: Colors.black.withValues(alpha: 0.18),
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.22)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: isTablet ? 72 : 58,
-            child: FilledButton.icon(
-              onPressed: _continueToGame,
-              icon: Icon(Icons.play_arrow_rounded, size: isTablet ? 32 : 26),
-              label: Text(
-                _resumeGameAvailable && _selectedMode == GameMode.block
-                    ? (_isSpanish ? 'Continuar partida' : 'Resume game')
-                    : (_isSpanish ? 'Continuar' : 'Continue'),
-                style: TextStyle(
-                  fontSize: isTablet ? 22 : 17,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFE53935),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-            ),
+            compact: isCompact,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHowToPlayCard(bool isTablet, {required bool compact}) {
+    return InkWell(
+      onTap: _showSelectedModeHowToPlay,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: isTablet ? 18 : 14,
+          vertical: isTablet ? 15 : (compact ? 8 : 10),
+        ),
+        decoration: BoxDecoration(
+          color: const Color(0xFF142A32).withValues(alpha: 0.86),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.help_rounded,
+              color: Colors.white,
+              size: isTablet ? 29 : (compact ? 22 : 25),
+            ),
+            SizedBox(width: isTablet ? 16 : 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _selectedModeHelpButtonText,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isTablet ? 16 : (compact ? 12 : 14),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    _isSpanish ? 'Aprende las reglas' : 'Learn the rules',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.66),
+                      fontSize: isTablet ? 12 : (compact ? 9 : 11),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContinueButton({required bool isTablet}) {
+    return SizedBox(
+      width: double.infinity,
+      height: isTablet ? 72 : 52,
+      child: FilledButton.icon(
+        onPressed: _continueToGame,
+        icon: Icon(Icons.play_arrow_rounded, size: isTablet ? 32 : 25),
+        label: Text(
+          _resumeGameAvailable && _selectedMode == GameMode.block
+              ? (_isSpanish ? 'Continuar partida' : 'Resume game')
+              : (_isSpanish ? 'Continuar' : 'Continue'),
+          style: TextStyle(
+            fontSize: isTablet ? 22 : 17,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        style: FilledButton.styleFrom(
+          backgroundColor: const Color(0xFFE53935),
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
       ),
     );
   }
@@ -494,24 +532,25 @@ class _StartGameScreenState extends State<StartGameScreen> {
     );
   }
 
-  Widget _buildProfileButton(bool isTablet) {
+  Widget _buildProfileButton(bool isTablet, {bool compact = false}) {
     final country = _countryOptions.firstWhere(
       (option) => option.code == _selectedCountryCode,
       orElse: () => _countryOptions.first,
     );
     final countryName = _isSpanish ? country.spanishName : country.englishName;
     final tierVisual = DominoTierVisual.fromScore(0, ranked: _hasSavedProfile);
+    final avatarProfile = _selectedAvatarProfile;
     final avatarColor =
         _hasSavedProfile
-            ? tierVisual.avatarBackground(_selectedAvatar.color)
-            : _selectedAvatar.color;
+            ? tierVisual.avatarBackground(avatarProfile.color)
+            : avatarProfile.color;
 
     return InkWell(
       onTap:
           () => _showProfileEditor(requiredInitialProfile: !_hasSavedProfile),
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: EdgeInsets.all(isTablet ? 18 : 14),
+        padding: EdgeInsets.all(isTablet ? 18 : (compact ? 9 : 12)),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.22),
           borderRadius: BorderRadius.circular(18),
@@ -529,8 +568,8 @@ class _StartGameScreenState extends State<StartGameScreen> {
         child: Row(
           children: [
             Container(
-              width: isTablet ? 54 : 46,
-              height: isTablet ? 54 : 46,
+              width: isTablet ? 54 : (compact ? 40 : 46),
+              height: isTablet ? 54 : (compact ? 40 : 46),
               decoration: BoxDecoration(
                 gradient:
                     _hasSavedProfile
@@ -550,12 +589,11 @@ class _StartGameScreenState extends State<StartGameScreen> {
                   width: _hasSavedProfile ? 1.4 : 1,
                 ),
               ),
-              child: Center(
-                child: Icon(
-                  _selectedAvatar.icon,
-                  color: Colors.white,
-                  size: isTablet ? 30 : 26,
-                ),
+              clipBehavior: Clip.antiAlias,
+              child: DominoAvatarVisual(
+                avatarKey: _selectedAvatarKey,
+                fallbackIcon: avatarProfile.icon,
+                backgroundColor: avatarColor,
               ),
             ),
             const SizedBox(width: 12),
@@ -591,7 +629,6 @@ class _StartGameScreenState extends State<StartGameScreen> {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: Colors.white),
           ],
         ),
       ),
@@ -600,6 +637,7 @@ class _StartGameScreenState extends State<StartGameScreen> {
 
   Future<void> _preloadRewardedAd() async {
     if (kIsWeb || _rewardedAd != null || _isPreloadingRewardedAd) return;
+    if (context.read<PremiumNotifier>().isPremium) return;
 
     _isPreloadingRewardedAd = true;
     await RewardedAd.load(
@@ -701,8 +739,7 @@ class _StartGameScreenState extends State<StartGameScreen> {
           _countryOptions.any((country) => country.code == savedCountry)) {
         _selectedCountryCode = savedCountry;
       }
-      if (savedAvatar != null &&
-          _avatarOptions.any((avatar) => avatar.key == savedAvatar)) {
+      if (savedAvatar != null && savedAvatar.trim().isNotEmpty) {
         _selectedAvatarKey = savedAvatar;
       }
     });
@@ -728,18 +765,15 @@ class _StartGameScreenState extends State<StartGameScreen> {
   bool _profileChanged({
     required String initials,
     required String countryCode,
-    required String avatarKey,
   }) {
     return _cleanInitials(initials) != _playerInitials ||
-        countryCode != _selectedCountryCode ||
-        avatarKey != _selectedAvatarKey;
+        countryCode != _selectedCountryCode;
   }
 
   Future<void> _saveProfileFromEditor({
     required BuildContext sheetContext,
     required String initials,
     required String countryCode,
-    required String avatarKey,
   }) async {
     if (_isSavingProfile) return;
 
@@ -760,7 +794,6 @@ class _StartGameScreenState extends State<StartGameScreen> {
     final changed = _profileChanged(
       initials: cleanedInitials,
       countryCode: countryCode,
-      avatarKey: avatarKey,
     );
     if (!changed && _hasSavedProfile) {
       Navigator.pop(sheetContext);
@@ -783,18 +816,18 @@ class _StartGameScreenState extends State<StartGameScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_profileInitialsKey, cleanedInitials);
     await prefs.setString(_profileCountryKey, countryCode);
-    await prefs.setString(_profileAvatarKey, avatarKey);
     await prefs.setString(_profileCodeKey, _playerCodeController.text);
     await prefs.setBool(_profileSavedKey, true);
     if (!premiumNotifier.isPremium) {
       await prefs.setBool(_profileFreeEditUsedKey, true);
     }
+    await PlayerAccountService.instance.syncCurrentProfile();
 
     if (!mounted) return;
     unawaited(
       AnalyticsService.logDominoProfileSaved(
         countryCode: countryCode,
-        avatarKey: avatarKey,
+        avatarKey: _selectedAvatarKey,
         gameMode: _analyticsGameMode,
         isFirstProfile: wasFirstProfile,
         isPremium: premiumNotifier.isPremium,
@@ -803,7 +836,6 @@ class _StartGameScreenState extends State<StartGameScreen> {
     setState(() {
       _nameController.text = cleanedInitials;
       _selectedCountryCode = countryCode;
-      _selectedAvatarKey = avatarKey;
       _hasSavedProfile = true;
       _hasUsedFreeProfileEdit =
           premiumNotifier.isPremium ? _hasUsedFreeProfileEdit : true;
@@ -875,6 +907,7 @@ class _StartGameScreenState extends State<StartGameScreen> {
 
   Future<bool> _showRewardedAdForProfileEdit() async {
     if (kIsWeb) return false;
+    if (context.read<PremiumNotifier>().isPremium) return true;
 
     setState(() => _isLoadingRewardedAd = true);
     final ad = await _loadRewardedAdNow();
@@ -915,7 +948,6 @@ class _StartGameScreenState extends State<StartGameScreen> {
       text: _hasSavedProfile ? _playerInitials : '',
     );
     String tempCountryCode = _selectedCountryCode;
-    String tempAvatarKey = _selectedAvatarKey;
     final tempPlayerCode = _playerCodeController.text;
 
     String tempPublicPlayerId() {
@@ -938,6 +970,7 @@ class _StartGameScreenState extends State<StartGameScreen> {
         return SafeArea(
           child: StatefulBuilder(
             builder: (context, setSheetState) {
+              final account = PlayerAccountService.instance;
               return Container(
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(18),
@@ -1001,59 +1034,6 @@ class _StartGameScreenState extends State<StartGameScreen> {
                           ),
                           const SizedBox(height: 18),
                           Text(
-                            _isSpanish ? 'Icono del jugador' : 'Player icon',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children:
-                                _avatarOptions.map((avatar) {
-                                  final selected = avatar.key == tempAvatarKey;
-                                  return InkWell(
-                                    onTap: () {
-                                      setSheetState(
-                                        () => tempAvatarKey = avatar.key,
-                                      );
-                                    },
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: AnimatedContainer(
-                                      duration: const Duration(
-                                        milliseconds: 160,
-                                      ),
-                                      width: 54,
-                                      height: 54,
-                                      decoration: BoxDecoration(
-                                        color: avatar.color.withValues(
-                                          alpha: selected ? 0.95 : 0.42,
-                                        ),
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(
-                                          color:
-                                              selected
-                                                  ? const Color(0xFFFFD36B)
-                                                  : Colors.white.withValues(
-                                                    alpha: 0.18,
-                                                  ),
-                                          width: selected ? 2 : 1,
-                                        ),
-                                      ),
-                                      child: Icon(
-                                        avatar.icon,
-                                        color: Colors.white,
-                                        size: 28,
-                                      ),
-                                    ),
-                                  );
-                                }).toList(),
-                          ),
-                          const SizedBox(height: 18),
-                          Text(
                             _isSpanish ? 'Pais del jugador' : 'Player country',
                             style: const TextStyle(
                               color: Colors.white,
@@ -1062,82 +1042,145 @@ class _StartGameScreenState extends State<StartGameScreen> {
                             ),
                           ),
                           const SizedBox(height: 10),
-                          Container(
-                            constraints: BoxConstraints(
-                              maxHeight:
-                                  MediaQuery.sizeOf(context).height < 820
-                                      ? 160
-                                      : 180,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.18),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.14),
+                          DropdownButtonFormField<String>(
+                            initialValue: tempCountryCode,
+                            isExpanded: true,
+                            dropdownColor: const Color(0xFF17222D),
+                            iconEnabledColor: const Color(0xFFFFD36B),
+                            decoration: InputDecoration(
+                              prefixIcon: const Icon(
+                                Icons.public_rounded,
+                                color: Color(0xFF67B7FF),
+                              ),
+                              filled: true,
+                              fillColor: Colors.black.withValues(alpha: 0.18),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: Colors.white.withValues(alpha: 0.18),
+                                ),
                               ),
                             ),
-                            child: ListView.separated(
-                              shrinkWrap: true,
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              itemCount: _countryOptions.length,
-                              separatorBuilder:
-                                  (_, __) => Divider(
-                                    height: 1,
-                                    color: Colors.white.withValues(alpha: 0.08),
-                                  ),
-                              itemBuilder: (context, index) {
-                                final country = _countryOptions[index];
-                                final selected =
-                                    country.code == tempCountryCode;
-                                final countryName =
-                                    _isSpanish
-                                        ? country.spanishName
-                                        : country.englishName;
-                                return ListTile(
-                                  dense: true,
-                                  leading: CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor:
-                                        selected
-                                            ? const Color(0xFF1E88E5)
-                                            : Colors.white.withValues(
-                                              alpha: 0.10,
-                                            ),
+                            items: _countryOptions
+                                .map((country) {
+                                  final name =
+                                      _isSpanish
+                                          ? country.spanishName
+                                          : country.englishName;
+                                  return DropdownMenuItem<String>(
+                                    value: country.code,
                                     child: Text(
-                                      country.code,
+                                      '${country.code} - $name',
+                                      overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                         color: Colors.white,
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                     ),
-                                  ),
-                                  title: Text(
-                                    '${country.code} - $countryName',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: selected ? 1 : 0.82,
+                                  );
+                                })
+                                .toList(growable: false),
+                            onChanged: (value) {
+                              if (value == null) return;
+                              setSheetState(() => tempCountryCode = value);
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color:
+                                  account.isProtected
+                                      ? const Color(0xFF123329)
+                                      : const Color(0xFF172A3B),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color:
+                                    account.canPurchaseCoins
+                                        ? const Color(0xFF55D98A)
+                                        : const Color(0xFFFFD36B),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  account.canPurchaseCoins
+                                      ? Icons.cloud_done_rounded
+                                      : Icons.account_balance_wallet_rounded,
+                                  color:
+                                      account.canPurchaseCoins
+                                          ? const Color(0xFF7CFF9B)
+                                          : const Color(0xFFFFD36B),
+                                  size: 32,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        account.isProtected
+                                            ? (_isSpanish
+                                                ? 'Cuenta Kapi protegida'
+                                                : 'Protected Kapi account')
+                                            : (_isSpanish
+                                                ? 'Guarda tus Kapi Coins y ranking'
+                                                : 'Save your Kapi Coins and ranking'),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                        ),
                                       ),
-                                      fontWeight:
-                                          selected
-                                              ? FontWeight.w900
-                                              : FontWeight.w700,
-                                    ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        account.isProtected
+                                            ? (account.accountEmail ??
+                                                account.providerLabel ??
+                                                'Kapi')
+                                            : (_isSpanish
+                                                ? 'Regístrate para protegerlos y comprar.'
+                                                : 'Register to protect them and buy.'),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Color(0xFFCCD2D9),
+                                          fontSize: 12,
+                                          height: 1.25,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  trailing:
-                                      selected
-                                          ? const Icon(
-                                            Icons.check_circle_rounded,
-                                            color: Color(0xFF7CFF9B),
-                                          )
-                                          : null,
-                                  onTap: () {
-                                    setSheetState(
-                                      () => tempCountryCode = country.code,
+                                ),
+                                IconButton(
+                                  tooltip:
+                                      _isSpanish
+                                          ? 'Administrar cuenta'
+                                          : 'Manage account',
+                                  onPressed: () async {
+                                    await Navigator.push<void>(
+                                      this.context,
+                                      MaterialPageRoute<void>(
+                                        settings: const RouteSettings(
+                                          name: '/player-account',
+                                        ),
+                                        builder:
+                                            (_) => const PlayerAccountScreen(),
+                                      ),
                                     );
+                                    if (context.mounted) {
+                                      setSheetState(() {});
+                                    }
                                   },
-                                );
-                              },
+                                  icon: const Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -1155,7 +1198,6 @@ class _StartGameScreenState extends State<StartGameScreen> {
                             sheetContext: context,
                             initials: tempInitialsController.text,
                             countryCode: tempCountryCode,
-                            avatarKey: tempAvatarKey,
                           );
                         },
                         style: FilledButton.styleFrom(
@@ -1171,6 +1213,36 @@ class _StartGameScreenState extends State<StartGameScreen> {
                         ),
                       ),
                     ),
+                    if (requiredInitialProfile) ...[
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          await Navigator.push(
+                            this.context,
+                            MaterialPageRoute<void>(
+                              settings: const RouteSettings(
+                                name: '/player-account-recovery',
+                              ),
+                              builder:
+                                  (_) => const PlayerAccountScreen(
+                                    recoverOnly: true,
+                                  ),
+                            ),
+                          );
+                          if (mounted) await _loadSavedProfile();
+                        },
+                        icon: const Icon(Icons.restore_rounded),
+                        label: Text(
+                          _isSpanish
+                              ? 'Recuperar perfil existente'
+                              : 'Recover existing profile',
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFFFD36B),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               );
@@ -1187,84 +1259,92 @@ class _StartGameScreenState extends State<StartGameScreen> {
     required String title,
     required String subtitle,
     required bool isTablet,
+    required bool compact,
   }) {
     final selected = _selectedMode == mode;
-    final isComingSoon = mode != GameMode.block;
+    final isComingSoon = mode != GameMode.block && mode != GameMode.teams;
     return InkWell(
       onTap: () => setState(() => _selectedMode = mode),
       borderRadius: BorderRadius.circular(18),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: EdgeInsets.all(isTablet ? 18 : 14),
+        padding: EdgeInsets.symmetric(
+          horizontal: isTablet ? 18 : 14,
+          vertical: isTablet ? 18 : (compact ? 8 : 11),
+        ),
         decoration: BoxDecoration(
           color:
               selected
-                  ? const Color(0xFF1E88E5).withValues(alpha: 0.92)
-                  : Colors.black.withValues(alpha: 0.24),
-          borderRadius: BorderRadius.circular(18),
+                  ? const Color(0xFF53647B).withValues(alpha: 0.94)
+                  : isComingSoon
+                  ? const Color(0xFF343942).withValues(alpha: 0.82)
+                  : Colors.black.withValues(alpha: 0.32),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color:
                 selected
-                    ? const Color(0xFFFFD36B)
+                    ? const Color(0xFFC7D8FF)
                     : isComingSoon
-                    ? const Color(0xFFFFD36B).withValues(alpha: 0.42)
+                    ? const Color(0xFF8A8F99).withValues(alpha: 0.58)
                     : Colors.white.withValues(alpha: 0.18),
             width: selected ? 1.5 : 1,
           ),
         ),
-        child: Column(
+        child: Row(
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(icon, color: Colors.white, size: isTablet ? 34 : 28),
-                if (isComingSoon)
-                  Positioned(
-                    right: isTablet ? -10 : -8,
-                    bottom: isTablet ? -6 : -5,
-                    child: Container(
-                      width: isTablet ? 20 : 17,
-                      height: isTablet ? 20 : 17,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF422C30),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
-                      ),
-                      child: Icon(
-                        Icons.lock_rounded,
-                        color: Colors.white,
-                        size: isTablet ? 12 : 10,
-                      ),
+            Icon(
+              icon,
+              color: isComingSoon ? const Color(0xFFA8ABB2) : Colors.white,
+              size: isTablet ? 34 : (compact ? 24 : 27),
+            ),
+            SizedBox(width: isTablet ? 18 : 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color:
+                          isComingSoon ? const Color(0xFFA8ABB2) : Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: isTablet ? 18 : 14,
                     ),
                   ),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    isComingSoon
+                        ? (_isSpanish ? 'Proximamente' : 'Coming soon')
+                        : subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color:
+                          isComingSoon
+                              ? const Color(0xFFA8ABB2)
+                              : Colors.white.withValues(alpha: 0.78),
+                      fontWeight: FontWeight.w600,
+                      fontSize: isTablet ? 13 : 11,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+            if (selected)
+              Icon(
+                Icons.check_rounded,
                 color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: isTablet ? 18 : 14,
+                size: isTablet ? 28 : 23,
+              )
+            else if (isComingSoon)
+              Icon(
+                Icons.lock_rounded,
+                color: const Color(0xFFA8ABB2),
+                size: isTablet ? 23 : 20,
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              isComingSoon
-                  ? (_isSpanish ? 'Proximamente' : 'Coming soon')
-                  : subtitle,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.78),
-                fontWeight: FontWeight.w600,
-                fontSize: isTablet ? 13 : 11,
-              ),
-            ),
           ],
         ),
       ),
@@ -1492,10 +1572,37 @@ class _StartGameScreenState extends State<StartGameScreen> {
 
   List<_HowToPlayPage> get _selectedModeHelpPages {
     switch (_selectedMode) {
+      case GameMode.teams:
+        return [
+          _HowToPlayPage(
+            icon: Icons.groups_2_rounded,
+            title: 'Teams 2 vs 2',
+            body:
+                _isSpanish
+                    ? 'Cuatro jugadores, siete fichas cada uno. Tú y tu compañero juegan en posiciones opuestas.'
+                    : 'Four players with seven tiles each. You and your partner sit opposite each other.',
+          ),
+          _HowToPlayPage(
+            icon: Icons.looks_6_rounded,
+            title: 'Double-6',
+            body:
+                _isSpanish
+                    ? 'La primera mano sale con el doble más alto. Después sale solamente quien dominó la mano anterior.'
+                    : 'The first hand opens with the highest double. Later, only the previous dominator opens.',
+          ),
+          _HowToPlayPage(
+            icon: Icons.calculate_rounded,
+            title: _isSpanish ? 'Tranca y puntos' : 'Block and scoring',
+            body:
+                _isSpanish
+                    ? 'Quien tranca se compara solamente con el jugador que le sigue. Gana quien tenga menos puntos entre esos dos y su equipo recibe todos los puntos no jugados. El pase redondo vale 10.'
+                    : 'The blocker competes only with the next player. The lower total between those two wins, and their team scores every unplayed pip. A round pass is worth 10.',
+          ),
+        ];
       case GameMode.block:
         return [
           _HowToPlayPage(
-            icon: Icons.block_rounded,
+            icon: Icons.view_module_rounded,
             title: 'Block Dominoes',
             body:
                 _isSpanish
@@ -1674,160 +1781,234 @@ class _StartGameScreenState extends State<StartGameScreen> {
       _resumeGameAvailable = false;
     }
 
+    if (_selectedMode == GameMode.teams) {
+      if (!mounted) return;
+      final playVsCpu = await _showTeamsPlayModeChooser();
+      if (!mounted || playVsCpu == null) return;
+      Navigator.pushNamed(
+        context,
+        playVsCpu ? '/domino-teams-cpu' : '/domino-teams-online-lobby',
+      );
+      return;
+    }
+
     if (_selectedMode != GameMode.block) {
       _showModeComingSoon();
       return;
     }
 
-    await _showLobbyFlowChooser();
+    if (!mounted) return;
+    Navigator.pushNamed(context, '/simple-lobby');
   }
 
-  Future<void> _showLobbyFlowChooser() async {
-    await showModalBottomSheet<void>(
+  Future<bool?> _showTeamsPlayModeChooser() {
+    return showModalBottomSheet<bool>(
       context: context,
-      backgroundColor: const Color(0xFF101820),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
       builder:
           (sheetContext) => SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 22, 20, 28),
+            child: Container(
+              margin: const EdgeInsets.all(14),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF172735), Color(0xFF09131D)],
+                ),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: const Color(0xFFFFD36B).withValues(alpha: 0.8),
+                  width: 1.4,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black87,
+                    blurRadius: 28,
+                    offset: Offset(0, 14),
+                  ),
+                ],
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    _isSpanish ? 'Elige el lobby' : 'Choose a lobby',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
+                  Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: const Color(
+                            0xFF1976D2,
+                          ).withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: const Color(0xFF64B5F6)),
+                        ),
+                        child: const Icon(
+                          Icons.groups_2_rounded,
+                          color: Color(0xFF64B5F6),
+                          size: 29,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _isSpanish
+                                  ? 'Elige cómo jugar'
+                                  : 'Choose play mode',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const Text(
+                              'Teams 2 vs 2 · Double 6',
+                              style: TextStyle(
+                                color: Color(0xFFFFD36B),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Material(
+                    color: const Color(0xFF125C48),
+                    borderRadius: BorderRadius.circular(20),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () => Navigator.pop(sheetContext, true),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.13),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(
+                                Icons.smart_toy_rounded,
+                                color: Colors.white,
+                                size: 30,
+                              ),
+                            ),
+                            const SizedBox(width: 13),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _isSpanish
+                                        ? 'Jugar contra CPU'
+                                        : 'Play vs CPU',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    _isSpanish
+                                        ? 'Tú y tu compañero contra dos rivales.'
+                                        : 'You and your partner against two rivals.',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.arrow_forward_rounded,
+                              color: Color(0xFFFFD36B),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 18),
-                  _buildLobbyFlowOption(
-                    context: sheetContext,
-                    icon: Icons.groups_rounded,
-                    title: _isSpanish ? 'Lobby actual' : 'Current lobby',
-                    subtitle:
-                        _isSpanish
-                            ? 'Mantiene todas las opciones sociales actuales'
-                            : 'Keeps all current social options',
-                    route: '/lobby',
-                  ),
-                  const SizedBox(height: 12),
-                  _buildLobbyFlowOption(
-                    context: sheetContext,
-                    icon: Icons.touch_app_rounded,
-                    title:
-                        _isSpanish ? 'Nuevo lobby simple' : 'New simple lobby',
-                    subtitle:
-                        _isSpanish
-                            ? 'Buscar, invitar o jugar CPU en tres botones'
-                            : 'Find, invite, or play CPU with three buttons',
-                    route: '/simple-lobby',
-                    recommended: true,
+                  const SizedBox(height: 10),
+                  Material(
+                    color: const Color(0xFF173B68),
+                    borderRadius: BorderRadius.circular(20),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () => Navigator.pop(sheetContext, false),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFF64B5F6)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.public_rounded,
+                              color: Colors.white,
+                              size: 30,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _isSpanish ? 'Online' : 'Online',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  Text(
+                                    _isSpanish
+                                        ? 'Buscar jugadores · CPU completa los puestos'
+                                        : 'Find players · CPU fills empty seats',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.arrow_forward_rounded,
+                              color: Color(0xFFFFD36B),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-    );
-  }
-
-  Widget _buildLobbyFlowOption({
-    required BuildContext context,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String route,
-    bool recommended = false,
-  }) {
-    return Material(
-      color:
-          recommended
-              ? const Color(0xFFE53935)
-              : Colors.white.withValues(alpha: 0.06),
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: () {
-          Navigator.pop(context);
-          Navigator.pushNamed(this.context, route);
-        },
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color:
-                  recommended
-                      ? const Color(0xFFFFD36B)
-                      : Colors.white.withValues(alpha: 0.18),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, color: Colors.white, size: 34),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                        if (recommended) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFD36B),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              _isSpanish ? 'RECOMENDADO' : 'RECOMMENDED',
-                              style: const TextStyle(
-                                color: Color(0xFF101820),
-                                fontSize: 8,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.72),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, color: Colors.white),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -1885,7 +2066,7 @@ class _StartGameScreenState extends State<StartGameScreen> {
   }
 }
 
-enum GameMode { allFives, draw, block }
+enum GameMode { allFives, draw, block, teams }
 
 enum _ProfileEditDecision { cancel, rewardedAd, pro }
 
@@ -1905,14 +2086,6 @@ class _CountryOption {
   final String code;
   final String englishName;
   final String spanishName;
-}
-
-class _AvatarOption {
-  const _AvatarOption(this.key, this.icon, this.color);
-
-  final String key;
-  final IconData icon;
-  final Color color;
 }
 
 class _HowToPlayPage {

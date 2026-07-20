@@ -2,6 +2,11 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /kapi_player_accounts/{userId} {
+      allow read, create, update, delete: if request.auth != null
+        && request.auth.uid == userId;
+    }
+
     match /kapi_lobby_profiles/{profileId} {
       allow read, write: if true;
     }
@@ -27,6 +32,18 @@ service cloud.firestore {
     }
 
     match /kapi_block_matchmaking/{playerId} {
+      allow read, write: if true;
+    }
+
+    match /kapi_block_player_sessions/{playerId} {
+      allow read, write: if true;
+    }
+
+    match /kapi_teams_online_games/{gameId} {
+      allow read, write: if true;
+    }
+
+    match /kapi_teams_matchmaking/{entryId} {
       allow read, write: if true;
     }
 

@@ -51,7 +51,7 @@ class AnalyticsService {
         'avatar_key': avatarKey,
         'game_mode': gameMode,
         'profile_action': isFirstProfile ? 'created' : 'edited',
-        'is_premium': isPremium,
+        'is_premium': isPremium ? 1 : 0,
       },
     );
   }

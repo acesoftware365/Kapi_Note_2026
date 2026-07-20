@@ -54,3 +54,9 @@ android/key.properties
 # Xcode user state
 ios/**/*.xcuserstate
 ios/**/xcuserdata/
+
+# Local validation artifacts (not required to rebuild the app)
+/ios/.symlinks.stale/
+/release/
+/screenshots/
+/work/

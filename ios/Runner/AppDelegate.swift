@@ -9,14 +9,18 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
-    configureTikTokAppEvents()
+    #if !targetEnvironment(simulator)
+      configureTikTokAppEvents()
+    #endif
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
     NSLog("KapiNote TikTok: applicationDidBecomeActive")
-    TikTokBusiness.requestTrackingAuthorization()
+    #if !targetEnvironment(simulator)
+      TikTokBusiness.requestTrackingAuthorization()
+    #endif
     trackTikTokLaunchEvent()
   }
 

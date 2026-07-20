@@ -1,4 +1,6 @@
 // main.dart
+import 'dart:async';
+
 import 'package:dominoes_note2025/screens/team_name_notifier.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
@@ -6,23 +8,34 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'; // NEW: Import AdMob
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
 import 'services/analytics_service.dart';
+import 'services/audio_manager.dart';
+import 'services/kapi_cosmetics_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/settings_hub_screen.dart';
+import 'screens/game_audio_settings_screen.dart';
 import 'screens/premium_screen.dart';
 import 'screens/about_screen.dart';
+import 'screens/terms_privacy_screen.dart';
 import 'screens/game_screen.dart';
 import 'screens/legal_acceptance_screen.dart';
 import 'screens/fireworks_screen.dart';
 import 'screens/start_game_screen.dart';
 import 'screens/ranking_screen.dart';
+import 'screens/audio_test_screen.dart';
+import 'screens/player_account_screen.dart';
+import 'screens/kapi_store_screen.dart';
 import 'screens/block_dominoes/block_domino_game_screen.dart';
 import 'screens/domino_cpu_game_screen.dart' hide ClassicDominoGameScreen;
 import 'screens/domino_online_game_screen.dart';
+import 'screens/domino_teams/domino_teams_cpu_screen.dart';
+import 'screens/domino_teams/domino_teams_online_lobby_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/simple_lobby/simple_lobby_screen.dart';
 import 'locale_notifier.dart';
@@ -32,6 +45,9 @@ import 'font_size_notifier.dart';
 import 'legal_acceptance_notifier.dart';
 import 'premium_notifier.dart';
 import 'widgets/force_update_gate.dart';
+import 'widgets/screen_identifier.dart';
+
+final screenIdentifierObserver = ScreenIdentifierObserver();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +55,7 @@ void main() async {
   await AnalyticsService.logAppOpen();
   // NEW: Initialize Google Mobile Ads SDK
   await MobileAds.instance.initialize();
+  await AudioManager.instance.initialize();
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -59,8 +76,16 @@ void main() async {
   final gameSettingsNotifier = GameSettingsNotifier();
   final fontSizeNotifier = FontSizeNotifier();
   final teamNameNotifier = TeamNameNotifier();
-  final premiumNotifier = PremiumNotifier();
   final legalAcceptanceNotifier = LegalAcceptanceNotifier();
+  final cosmeticsService = KapiCosmeticsService.instance;
+  await cosmeticsService.load();
+  final premiumNotifier = PremiumNotifier(
+    coinPurchaseClaimer:
+        (claimId, amount) => cosmeticsService.claimPurchasedCoins(
+          claimId: claimId,
+          amount: amount,
+        ),
+  );
 
   await localeNotifier.loadLocale();
   await themeNotifier.loadThemeMode();
@@ -80,14 +105,46 @@ void main() async {
         ChangeNotifierProvider.value(value: teamNameNotifier),
         ChangeNotifierProvider.value(value: premiumNotifier),
         ChangeNotifierProvider.value(value: legalAcceptanceNotifier),
+        ChangeNotifierProvider.value(value: cosmeticsService),
       ],
       child: const DominoApp(),
     ),
   );
 }
 
-class DominoApp extends StatelessWidget {
+class DominoApp extends StatefulWidget {
   const DominoApp({super.key});
+
+  @override
+  State<DominoApp> createState() => _DominoAppState();
+}
+
+class _DominoAppState extends State<DominoApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(WakelockPlus.enable());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(WakelockPlus.enable());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      unawaited(WakelockPlus.disable());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(WakelockPlus.disable());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -98,6 +155,12 @@ class DominoApp extends StatelessWidget {
       'KAPI_INITIAL_ROUTE',
       defaultValue: '/',
     );
+    const debugOnlineGameId = String.fromEnvironment(
+      'KAPI_DEBUG_ONLINE_GAME_ID',
+    );
+    const debugOnlinePlayerId = String.fromEnvironment(
+      'KAPI_DEBUG_ONLINE_PLAYER_ID',
+    );
     final debugRouteEnabled = debugInitialRoute != '/';
     Widget buildDebugInitialScreen() {
       switch (debugInitialRoute) {
@@ -106,17 +169,34 @@ class DominoApp extends StatelessWidget {
         case '/legal':
           return const LegalAcceptanceScreen();
         case '/settings':
+          return const SettingsHubScreen();
+        case '/note-settings':
           return const SettingsScreen();
+        case '/game-settings':
+          return const GameAudioSettingsScreen();
         case '/premium':
           return const PremiumScreen();
         case '/about':
           return const AboutScreen();
+        case '/terms-privacy':
+          return const TermsPrivacyScreen();
         case '/game':
           return const GameScreen();
         case '/start-game':
           return const StartGameScreen();
         case '/ranking':
           return const RankingScreen();
+        case '/audio-test':
+          return const AudioTestScreen();
+        case '/player-account':
+          return const PlayerAccountScreen();
+        case '/kapi-store':
+          return const KapiStoreScreen();
+        case '/domino-online':
+          return const DominoOnlineGameScreen(
+            gameId: debugOnlineGameId,
+            playerId: debugOnlinePlayerId,
+          );
         case '/lobby':
           return const LobbyScreen();
         case '/simple-lobby':
@@ -126,6 +206,10 @@ class DominoApp extends StatelessWidget {
           return const ClassicDominoGameScreen();
         case '/domino-draw':
           return const DrawDominoGameScreen();
+        case '/domino-teams-cpu':
+          return const DominoTeamsCpuScreen();
+        case '/domino-teams-online-lobby':
+          return const DominoTeamsOnlineLobbyScreen();
         default:
           return const SplashScreen();
       }
@@ -230,7 +314,7 @@ class DominoApp extends StatelessWidget {
       ),
       themeMode: themeNotifier.themeMode,
       debugShowCheckedModeBanner: false,
-      navigatorObservers: [AnalyticsService.observer],
+      navigatorObservers: [AnalyticsService.observer, screenIdentifierObserver],
       locale: localeNotifier.locale,
       localeResolutionCallback: (deviceLocale, supportedLocales) {
         final deviceLanguage = deviceLocale?.languageCode;
@@ -260,23 +344,35 @@ class DominoApp extends StatelessWidget {
               : null,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        return ForceUpdateGate(child: child);
+        return ScreenIdentifier(
+          routeListenable: screenIdentifierObserver.currentRoute,
+          child: ForceUpdateGate(child: child),
+        );
       },
       routes: {
         '/': (context) => const SplashScreen(),
         '/home': (context) => const HomeScreen(),
         '/legal': (context) => const LegalAcceptanceScreen(),
-        '/settings': (context) => const SettingsScreen(),
+        '/settings': (context) => const SettingsHubScreen(),
+        '/note-settings': (context) => const SettingsScreen(),
+        '/game-settings': (context) => const GameAudioSettingsScreen(),
         '/premium': (context) => const PremiumScreen(),
         '/about': (context) => const AboutScreen(),
+        '/terms-privacy': (context) => const TermsPrivacyScreen(),
         '/game': (context) => const GameScreen(),
         '/start-game': (context) => const StartGameScreen(),
         '/ranking': (context) => const RankingScreen(),
+        '/audio-test': (context) => const AudioTestScreen(),
+        '/player-account': (context) => const PlayerAccountScreen(),
+        '/kapi-store': (context) => const KapiStoreScreen(),
         '/lobby': (context) => const LobbyScreen(),
         '/simple-lobby': (context) => const SimpleLobbyScreen(),
         '/domino-block': (context) => const ClassicDominoGameScreen(),
         '/domino-classic': (context) => const ClassicDominoGameScreen(),
         '/domino-draw': (context) => const DrawDominoGameScreen(),
+        '/domino-teams-cpu': (context) => const DominoTeamsCpuScreen(),
+        '/domino-teams-online-lobby':
+            (context) => const DominoTeamsOnlineLobbyScreen(),
         '/domino-online': (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
           final gameId = args is Map ? args['gameId'] as String? : null;

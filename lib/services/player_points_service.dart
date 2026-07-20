@@ -1,8 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'kapi_cosmetics_service.dart';
+
 class PlayerPointsService {
   const PlayerPointsService._();
+
+  static Future<int> loadLocalTotalPoints(String code) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cleanCode = code.toUpperCase();
+    return prefs.getInt('kapi_player_points_${cleanCode}_total') ?? 0;
+  }
 
   static Future<void> ensureProfileRegistered({
     required String code,
@@ -61,6 +69,7 @@ class PlayerPointsService {
     required int playerScore,
     required int cpuScore,
     required bool wonRound,
+    String? rewardKey,
   }) async {
     final cleanCode = code.toUpperCase();
     final hashtag = '#$cleanCode';
@@ -71,6 +80,9 @@ class PlayerPointsService {
       cpuScore: cpuScore,
       wonRound: wonRound,
     );
+    if (wonRound) {
+      await KapiCosmeticsService.instance.claimVictory(rewardKey: rewardKey);
+    }
 
     try {
       final db = FirebaseFirestore.instance;

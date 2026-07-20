@@ -157,6 +157,30 @@ class DominoPlayerProfile {
   String get publicId => '$initials.$countryCode.$code';
   String get shortId => code;
 
+  String? get avatarAssetPath => avatarAssetForKey(avatarKey);
+
+  static String? avatarAssetForKey(String key) => switch (key) {
+    'person' => 'assets/kapi_shop/avatars/avatar_person.png',
+    'woman' => 'assets/kapi_shop/avatars/avatar_woman.png',
+    'robot' => 'assets/kapi_shop/avatars/avatar_robot.png',
+    'game' => 'assets/kapi_shop/avatars/avatar_game.png',
+    'star' => 'assets/kapi_shop/avatars/avatar_star.png',
+    'caribbean_man' => 'assets/kapi_shop/avatars/avatar_caribbean_man.png',
+    'boricua_woman' => 'assets/kapi_shop/avatars/avatar_boricua_woman.png',
+    'mexico_man' => 'assets/kapi_shop/avatars/avatar_mexico_man.png',
+    'asian_woman' => 'assets/kapi_shop/avatars/avatar_asian_woman.png',
+    'india_man' => 'assets/kapi_shop/avatars/avatar_india_man.png',
+    'spanish_woman' => 'assets/kapi_shop/avatars/avatar_spanish_woman.png',
+    'android_emerald' => 'assets/kapi_shop/avatars/avatar_android_emerald.png',
+    'midnight_strategist' =>
+      'assets/kapi_shop/avatars/avatar_midnight_strategist.png',
+    'silver_tactician' =>
+      'assets/kapi_shop/avatars/avatar_silver_tactician.png',
+    'sunrise_champion' =>
+      'assets/kapi_shop/avatars/avatar_sunrise_champion.png',
+    _ => null,
+  };
+
   IconData get icon {
     switch (avatarKey) {
       case 'woman':
@@ -169,6 +193,26 @@ class DominoPlayerProfile {
         return Icons.sports_esports_rounded;
       case 'star':
         return Icons.star_rounded;
+      case 'caribbean_man':
+        return Icons.wb_sunny_rounded;
+      case 'boricua_woman':
+        return Icons.local_florist_rounded;
+      case 'mexico_man':
+        return Icons.eco_rounded;
+      case 'asian_woman':
+        return Icons.diamond_rounded;
+      case 'india_man':
+        return Icons.auto_awesome_rounded;
+      case 'spanish_woman':
+        return Icons.local_florist_rounded;
+      case 'android_emerald':
+        return Icons.smart_toy_rounded;
+      case 'midnight_strategist':
+        return Icons.psychology_alt_rounded;
+      case 'silver_tactician':
+        return Icons.workspace_premium_rounded;
+      case 'sunrise_champion':
+        return Icons.emoji_events_rounded;
       case 'person':
       default:
         return Icons.person_rounded;
@@ -187,6 +231,26 @@ class DominoPlayerProfile {
         return const Color(0xFF43A047);
       case 'star':
         return const Color(0xFFFFB300);
+      case 'caribbean_man':
+        return const Color(0xFF174B8B);
+      case 'boricua_woman':
+        return const Color(0xFFB23B58);
+      case 'mexico_man':
+        return const Color(0xFF116A4D);
+      case 'asian_woman':
+        return const Color(0xFF6A3AA8);
+      case 'india_man':
+        return const Color(0xFF7B2039);
+      case 'spanish_woman':
+        return const Color(0xFF9A2835);
+      case 'android_emerald':
+        return const Color(0xFF008A68);
+      case 'midnight_strategist':
+        return const Color(0xFF17365D);
+      case 'silver_tactician':
+        return const Color(0xFF287A78);
+      case 'sunrise_champion':
+        return const Color(0xFFE97832);
       case 'person':
       default:
         return const Color(0xFF1E88E5);
@@ -215,6 +279,46 @@ class DominoPlayerProfile {
     );
   }
 
+  Map<String, dynamic> toAccountMap() => {
+    'initials': initials.toUpperCase(),
+    'countryCode': countryCode.toUpperCase(),
+    'code': code.toUpperCase(),
+    'publicId': publicId.toUpperCase(),
+    'avatarKey': avatarKey,
+  };
+
+  static DominoPlayerProfile? fromAccountMap(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    final initials = (data['initials'] as String? ?? '').toUpperCase();
+    final country = (data['countryCode'] as String? ?? '').toUpperCase();
+    final code = (data['code'] as String? ?? '').toUpperCase();
+    final avatar = data['avatarKey'] as String? ?? 'person';
+    if (initials.length != 2 || country.length != 2 || !_isValidCode(code)) {
+      return null;
+    }
+    return DominoPlayerProfile(
+      initials: initials,
+      countryCode: country,
+      code: code,
+      avatarKey: avatar,
+    );
+  }
+
+  Future<void> saveLocally() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'kapi_player_profile_initials',
+      initials.toUpperCase(),
+    );
+    await prefs.setString(
+      'kapi_player_profile_country',
+      countryCode.toUpperCase(),
+    );
+    await prefs.setString('kapi_player_profile_code', code.toUpperCase());
+    await prefs.setString('kapi_player_profile_avatar', avatarKey);
+    await prefs.setBool('kapi_player_profile_saved', true);
+  }
+
   static bool _isValidCode(String? value) {
     return value != null &&
         RegExp(r'^[A-NP-Z1-9]{6}$').hasMatch(value.toUpperCase());
@@ -224,5 +328,41 @@ class DominoPlayerProfile {
     const chars = 'ABCDEFGHIJKLMNPQRSTUVWXYZ123456789';
     final random = Random.secure();
     return List.generate(6, (_) => chars[random.nextInt(chars.length)]).join();
+  }
+}
+
+class DominoAvatarVisual extends StatelessWidget {
+  const DominoAvatarVisual({
+    required this.avatarKey,
+    required this.fallbackIcon,
+    required this.backgroundColor,
+    this.fit = BoxFit.cover,
+    super.key,
+  });
+
+  final String avatarKey;
+  final IconData fallbackIcon;
+  final Color backgroundColor;
+  final BoxFit fit;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = DominoPlayerProfile.avatarAssetForKey(avatarKey);
+    if (asset == null) {
+      return ColoredBox(
+        color: backgroundColor,
+        child: Center(child: Icon(fallbackIcon, color: Colors.white)),
+      );
+    }
+    return ColoredBox(
+      color: backgroundColor,
+      child: Image.asset(
+        asset,
+        fit: fit,
+        filterQuality: FilterQuality.medium,
+        errorBuilder:
+            (_, _, _) => Center(child: Icon(fallbackIcon, color: Colors.white)),
+      ),
+    );
   }
 }

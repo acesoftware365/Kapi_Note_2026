@@ -10,8 +10,9 @@ import 'package:share_plus/share_plus.dart';
 import '../l10n/app_localizations.dart';
 import '../premium_notifier.dart';
 import '../services/analytics_service.dart';
+import '../services/audio_manager.dart';
+import '../services/kapi_cosmetics_service.dart';
 import '../widgets/anchored_adaptive_banner_ad.dart';
-import '../widgets/app_version_label.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,6 +26,14 @@ class _HomeScreenState extends State<HomeScreen> {
       defaultTargetPlatform == TargetPlatform.android
           ? AdmobVariable.bannerAndroidUnit
           : AdmobVariable.bannerIosUnit;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AudioManager.instance.stopAll();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    isPremium ? 'Pro' : 'Free',
+                    isPremium ? 'Premium' : 'Go Premium',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ],
@@ -104,6 +113,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           SafeArea(
+            // The footer already contains the banner/version spacing. Keeping
+            // the iPhone bottom inset here added a second large empty area
+            // below it and pushed the main controls unnecessarily upward.
+            bottom: false,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final isTablet = constraints.maxWidth >= 720;
@@ -116,37 +129,40 @@ class _HomeScreenState extends State<HomeScreen> {
                     horizontalPadding,
                     verticalPadding,
                     horizontalPadding,
-                    18,
+                    4,
                   ),
                   child: Column(
                     children: [
                       Expanded(
-                        child: Center(
-                          child: SingleChildScrollView(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: contentWidth,
+                        child: LayoutBuilder(
+                          builder: (context, contentConstraints) {
+                            return SingleChildScrollView(
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: contentWidth,
+                                    minHeight: contentConstraints.maxHeight,
+                                  ),
+                                  child:
+                                      isTablet
+                                          ? _buildTabletHome(
+                                            context,
+                                            appLocalizations,
+                                          )
+                                          : _buildPhoneHome(
+                                            context,
+                                            appLocalizations,
+                                          ),
+                                ),
                               ),
-                              child:
-                                  isTablet
-                                      ? _buildTabletHome(
-                                        context,
-                                        appLocalizations,
-                                      )
-                                      : _buildPhoneHome(
-                                        context,
-                                        appLocalizations,
-                                      ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      AnchoredAdaptiveBannerAd(adUnitId: _adUnitId),
-                      const AppVersionLabel(
-                        padding: EdgeInsets.only(top: 6),
-                        fontSize: 11,
-                      ),
+                      if (!isPremium) ...[
+                        const SizedBox(height: 4),
+                        AnchoredAdaptiveBannerAd(adUnitId: _adUnitId),
+                      ],
                     ],
                   ),
                 );
@@ -163,10 +179,10 @@ class _HomeScreenState extends State<HomeScreen> {
     AppLocalizations appLocalizations,
   ) {
     return Column(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildHeroBlock(context, appLocalizations, false),
-        const SizedBox(height: 42),
         _buildActionPanel(context, appLocalizations, false),
       ],
     );
@@ -177,10 +193,10 @@ class _HomeScreenState extends State<HomeScreen> {
     AppLocalizations appLocalizations,
   ) {
     return Column(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildHeroBlock(context, appLocalizations, true),
-        const SizedBox(height: 44),
         _buildActionPanel(context, appLocalizations, true),
       ],
     );
@@ -206,43 +222,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.sports_esports_rounded,
-                color: Color(0xFFFFF176),
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                isSpanish ? 'Marcador de domino' : 'Domino scorekeeper',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
         Text('Kapi Note', textAlign: TextAlign.center, style: titleStyle),
-        const SizedBox(height: 14),
+        SizedBox(height: isTablet ? 16 : 12),
         Text(
-          appLocalizations.homeScreenDescription,
+          isSpanish
+              ? 'Juega en línea o contra CPU, lleva tus apuntes y disfruta 4 juegos de dominó en un solo lugar.'
+              : 'Play online or vs CPU, keep your notes, and enjoy 4 domino games in one place.',
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: Colors.white.withValues(alpha: 0.86),
-            fontSize: isTablet ? 22 : 16,
-            height: 1.35,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.8),
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -283,33 +271,12 @@ class _HomeScreenState extends State<HomeScreen> {
               Navigator.pushNamed(context, '/game');
             },
             isTablet: isTablet,
+            outlined: true,
           ),
           SizedBox(height: isTablet ? 14 : 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildSecondaryButton(
-                  context,
-                  icon: Icons.block_rounded,
-                  label: _premiumButtonText(context),
-                  onPressed: () => Navigator.pushNamed(context, '/premium'),
-                  filled: true,
-                  isTablet: isTablet,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildSecondaryButton(
-                  context,
-                  icon: Icons.ios_share_rounded,
-                  label: _shareButtonText(context),
-                  onPressed: () => _sharePromotion(context),
-                  filled: false,
-                  isTablet: isTablet,
-                ),
-              ),
-            ],
-          ),
+          _buildShopFeatureButton(context, isTablet: isTablet),
+          SizedBox(height: isTablet ? 14 : 12),
+          _buildPremiumFeatureButton(context, isTablet: isTablet),
           SizedBox(height: isTablet ? 14 : 12),
           Row(
             children: [
@@ -326,16 +293,134 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: _buildMiniButton(
                   context,
-                  icon: Icons.privacy_tip_rounded,
-                  label: appLocalizations.privacyPolicy,
-                  onPressed: () => Navigator.pushNamed(context, '/about'),
+                  icon: Icons.ios_share_rounded,
+                  label: _shareButtonText(context),
+                  onPressed: () => _sharePromotion(context),
                   isTablet: isTablet,
                 ),
               ),
             ],
           ),
+          SizedBox(height: isTablet ? 14 : 12),
+          _buildMiniButton(
+            context,
+            icon: Icons.privacy_tip_rounded,
+            label: appLocalizations.privacyPolicy,
+            onPressed: () => Navigator.pushNamed(context, '/terms-privacy'),
+            isTablet: isTablet,
+          ),
           SizedBox(height: isTablet ? 16 : 14),
         ],
+      ),
+    );
+  }
+
+  Widget _buildShopFeatureButton(
+    BuildContext context, {
+    required bool isTablet,
+  }) {
+    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    final store = context.watch<KapiCosmeticsService>();
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => Navigator.pushNamed(context, '/kapi-store'),
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          height: isTablet ? 80 : 68,
+          padding: EdgeInsets.symmetric(horizontal: isTablet ? 20 : 14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF18374A), Color(0xFF0A2028)],
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFD6B56B), width: 1.3),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x44000000),
+                blurRadius: 12,
+                offset: Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: isTablet ? 48 : 42,
+                height: isTablet ? 48 : 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF241E14),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFD6B56B)),
+                ),
+                child: const Icon(
+                  Icons.storefront_rounded,
+                  color: Color(0xFFF1D99C),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isSpanish ? 'Tienda Kapi' : 'Kapi Shop',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isTablet ? 20 : 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      isSpanish
+                          ? 'Mesas, centros, perfiles y más'
+                          : 'Tables, centerpieces, profiles & more',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: const Color(0xFFF1D99C),
+                        fontSize: isTablet ? 13 : 10.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xCC08121C),
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: const Color(0x88D6B56B)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.monetization_on_rounded,
+                      color: Color(0xFFE6C66E),
+                      size: 14,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${store.balance} GP',
+                      style: const TextStyle(
+                        color: Color(0xFFF1D99C),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFFF1D99C)),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -346,6 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required IconData icon,
     required VoidCallback onPressed,
     required bool isTablet,
+    bool outlined = false,
   }) {
     return SizedBox(
       height: isTablet ? 78 : 62,
@@ -362,11 +448,73 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFFE53935),
+          backgroundColor:
+              outlined
+                  ? Colors.white.withValues(alpha: 0.1)
+                  : const Color(0xFFE53935),
           foregroundColor: Colors.white,
+          side:
+              outlined
+                  ? const BorderSide(color: Color(0xFFE57373), width: 1.6)
+                  : BorderSide.none,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumFeatureButton(
+    BuildContext context, {
+    required bool isTablet,
+  }) {
+    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    return SizedBox(
+      height: isTablet ? 82 : 68,
+      child: FilledButton(
+        onPressed: () => Navigator.pushNamed(context, '/premium'),
+        style: FilledButton.styleFrom(
+          backgroundColor: const Color(0xFF1976D2),
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : 18),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.workspace_premium_rounded, size: isTablet ? 34 : 28),
+            SizedBox(width: isTablet ? 13 : 10),
+            Flexible(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _premiumButtonText(context),
+                    style: TextStyle(
+                      fontSize: isTablet ? 22 : 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  Text(
+                    isSpanish
+                        ? 'Sin anuncios y beneficios exclusivos'
+                        : 'No ads and exclusive benefits',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.88),
+                      fontSize: isTablet ? 14 : 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -451,8 +599,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _premiumButtonText(BuildContext context) {
     return Localizations.localeOf(context).languageCode == 'es'
-        ? 'Quitar anuncios'
-        : 'Remove Ads';
+        ? 'Hazte Premium'
+        : 'Go Premium';
   }
 
   String _shareButtonText(BuildContext context) {

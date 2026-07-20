@@ -4,8 +4,17 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../constants/audio_assets.dart';
+import '../constants/domino_game_config.dart';
+import '../services/audio_manager.dart';
+import '../services/domino_display_settings.dart';
+import '../services/kapi_cosmetics_service.dart';
+import '../widgets/adaptive_domino_hand_tray.dart';
 import '../widgets/anchored_adaptive_banner_ad.dart';
-import '../widgets/app_version_label.dart';
+import '../widgets/game_audio_controls.dart';
+import '../widgets/domino_result_celebration.dart';
+import '../widgets/kapi_centerpiece_overlay.dart';
+import '../widgets/kapi_table_center_material.dart';
 import '../services/player_points_service.dart';
 import 'admob_variable.dart';
 import 'domino_player_profile.dart';
@@ -24,17 +33,17 @@ class DominoCpuGameScreen extends StatefulWidget {
 }
 
 class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   static const Color _redTop = Color(0xFF6D0907);
   static const Color _navyBottom = Color(0xFF071524);
-  static const Color _tableGreen = Color(0xFF063D2D);
   static const Color _gold = Color(0xFFFFD36B);
   static const Duration _cpuThinkingDelay = Duration(seconds: 3);
-  static const int _targetScore = 30;
+  static int get _targetScore => DominoGameConfig.targetScore;
 
   final Random _random = Random();
   final ScrollController _playerHandScrollController = ScrollController();
   late final AnimationController _confettiController;
+  late final AnimationController _sideChoicePulse;
   DominoPlayerProfile _profile = const DominoPlayerProfile(
     initials: 'JP',
     countryCode: 'US',
@@ -48,21 +57,24 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   List<_BoardDomino> _board = [];
   int _playerScore = 0;
   int _cpuScore = 0;
+  int _profilePoints = 0;
   int _roundNumber = 0;
   bool _isPlayerTurn = true;
   bool _cpuThinking = false;
   bool _roundOver = false;
   bool _statusVisible = true;
   bool _isSpanish = false;
-  bool _largeCenterTile = false;
   bool _showConfetti = false;
   double _playedTileScale = 1.0;
+  double _handTileScale = 1.0;
   String _status = '';
   _RoundWinner? _roundWinner;
   _RoundWinner? _previousRoundWinner;
   _TileOwner? _lastTileOwner;
   List<_DominoTile> _roundCpuTiles = [];
   List<_DominoTile> _roundPlayerTiles = [];
+  _DominoTile? _sideChoiceTile;
+  Completer<_BoardSide?>? _sideChoiceCompleter;
   Timer? _statusTimer;
 
   bool get _isDrawMode => widget.mode == DominoCpuMode.draw;
@@ -79,22 +91,42 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
 
   @override
   void dispose() {
+    DominoDisplaySettings.playedTileScale.removeListener(
+      _handlePlayedTileScale,
+    );
+    DominoDisplaySettings.handTileScale.removeListener(_handleHandTileScale);
     _statusTimer?.cancel();
+    if (!(_sideChoiceCompleter?.isCompleted ?? true)) {
+      _sideChoiceCompleter!.complete(null);
+    }
     _confettiController.dispose();
+    _sideChoicePulse.dispose();
     _playerHandScrollController.dispose();
+    unawaited(AudioManager.instance.stopMusic());
     super.dispose();
   }
 
   @override
   void initState() {
     super.initState();
+    DominoDisplaySettings.playedTileScale.addListener(_handlePlayedTileScale);
+    DominoDisplaySettings.handTileScale.addListener(_handleHandTileScale);
     _confettiController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
     );
+    _sideChoicePulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 720),
+    )..repeat(reverse: true);
     _loadProfile();
+    _loadPlayedTileScale();
+    _loadHandTileScale();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _startNewRound();
+      if (!mounted) return;
+      unawaited(AudioManager.instance.playMusic(AudioAssets.gameplayLoop));
+      unawaited(AudioManager.instance.playSfx(AudioAssets.gameStart));
+      _startNewRound();
     });
   }
 
@@ -106,8 +138,40 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
 
   Future<void> _loadProfile() async {
     final profile = await DominoPlayerProfile.load();
+    final profilePoints = await PlayerPointsService.loadLocalTotalPoints(
+      profile.code,
+    );
     if (!mounted) return;
-    setState(() => _profile = profile);
+    setState(() {
+      _profile = profile;
+      _profilePoints = profilePoints;
+    });
+  }
+
+  Future<void> _loadPlayedTileScale() async {
+    final value = await DominoDisplaySettings.loadPlayedTileScale();
+    if (mounted) setState(() => _playedTileScale = value);
+  }
+
+  void _handlePlayedTileScale() {
+    if (mounted) {
+      setState(() {
+        _playedTileScale = DominoDisplaySettings.playedTileScale.value;
+      });
+    }
+  }
+
+  Future<void> _loadHandTileScale() async {
+    final value = await DominoDisplaySettings.loadHandTileScale();
+    if (mounted) setState(() => _handTileScale = value);
+  }
+
+  void _handleHandTileScale() {
+    if (mounted) {
+      setState(() {
+        _handTileScale = DominoDisplaySettings.handTileScale.value;
+      });
+    }
   }
 
   void _startNewRound() {
@@ -132,28 +196,38 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
     _roundCpuTiles = [];
     _roundPlayerTiles = [];
 
-    final starter = _selectStarter();
-    if (starter.owner == _TileOwner.player) {
-      _playerHand.remove(starter.tile);
-      _board.add(_BoardDomino.fromTile(starter.tile, isFirst: true));
-      _lastTileOwner = _TileOwner.player;
-      _isPlayerTurn = false;
-      _setStatus(
-        _isSpanish
-            ? 'Saliste con ${starter.tile.label}'
-            : 'You opened with ${starter.tile.label}',
-      );
-      unawaited(_playCpuTurn());
-    } else {
-      _cpuHand.remove(starter.tile);
-      _board.add(_BoardDomino.fromTile(starter.tile, isFirst: true));
-      _lastTileOwner = _TileOwner.cpu;
+    if (_previousRoundWinner == _RoundWinner.player) {
       _isPlayerTurn = true;
       _setStatus(
         _isSpanish
-            ? 'CPU salio con ${starter.tile.label}'
-            : 'CPU opened with ${starter.tile.label}',
+            ? 'Ganaste la ronda anterior. Elige tu ficha de salida.'
+            : 'You won the previous round. Choose your opening tile.',
+        keepVisible: true,
       );
+    } else {
+      final starter = _selectStarter();
+      if (starter.owner == _TileOwner.player) {
+        _playerHand.remove(starter.tile);
+        _board.add(_BoardDomino.fromTile(starter.tile, isFirst: true));
+        _lastTileOwner = _TileOwner.player;
+        _isPlayerTurn = false;
+        _setStatus(
+          _isSpanish
+              ? 'Saliste con ${starter.tile.label}'
+              : 'You opened with ${starter.tile.label}',
+        );
+        unawaited(_playCpuTurn());
+      } else {
+        _cpuHand.remove(starter.tile);
+        _board.add(_BoardDomino.fromTile(starter.tile, isFirst: true));
+        _lastTileOwner = _TileOwner.cpu;
+        _isPlayerTurn = true;
+        _setStatus(
+          _isSpanish
+              ? 'CPU salio con ${starter.tile.label}'
+              : 'CPU opened with ${starter.tile.label}',
+        );
+      }
     }
     setState(() {});
     _scrollPlayerHandToPlayableStart();
@@ -218,17 +292,25 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
 
     final sides = _validSides(tile);
     if (sides.isEmpty) {
+      unawaited(AudioManager.instance.playSfx(AudioAssets.invalidMove));
       _showMessage(_isSpanish ? 'Ficha invalida' : 'Invalid tile');
       return;
     }
 
-    final side =
-        requestedSide ??
-        (sides.length == 1 ? sides.first : await _askSideForTile(tile));
-    if (side == null || !sides.contains(side)) return;
+    var side = requestedSide;
+    if (side == null &&
+        sides.length > 1 &&
+        _leftOpen != null &&
+        _leftOpen != _rightOpen) {
+      side = await _askSideForTile(tile);
+      if (side == null || !mounted || !_isPlayerTurn) return;
+    }
+    side ??= sides.contains(_BoardSide.right) ? _BoardSide.right : sides.first;
+    if (!sides.contains(side)) return;
+    final selectedSide = side;
 
     setState(() {
-      _placeTile(tile, side);
+      _placeTile(tile, selectedSide);
       _playerHand.remove(tile);
       _lastTileOwner = _TileOwner.player;
       _isPlayerTurn = false;
@@ -236,129 +318,97 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
         _isSpanish ? 'Jugaste ${tile.label}' : 'You played ${tile.label}',
       );
     });
+    unawaited(
+      AudioManager.instance.playSfx(
+        tile.isDouble ? AudioAssets.dominoDouble : AudioAssets.dominoPlace,
+      ),
+    );
 
     if (_checkRoundEnd()) return;
     await _playCpuTurn();
   }
 
-  Future<_BoardSide?> _askSideForTile(_DominoTile tile) {
-    return showDialog<_BoardSide>(
-      context: context,
-      builder:
-          (context) => SafeArea(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 26, 16, 0),
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xEF101820),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: _gold.withValues(alpha: 0.5),
-                        width: 1.4,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.35),
-                          blurRadius: 18,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            _DominoWidget(
-                              tile: tile,
-                              vertical: tile.isDouble,
-                              highlighted: false,
-                              color:
-                                  tile.isDouble
-                                      ? const Color(0xFF1E88E5)
-                                      : const Color(0xFFFFF6DF),
-                              width: 30,
-                              height: 56,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                _isSpanish
-                                    ? 'Elige lado para ${tile.label}'
-                                    : 'Choose side for ${tile.label}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => Navigator.pop(context),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: BorderSide(
-                                    color: Colors.white.withValues(alpha: 0.28),
-                                  ),
-                                ),
-                                child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: FilledButton(
-                                onPressed:
-                                    () =>
-                                        Navigator.pop(context, _BoardSide.left),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE53935),
-                                  foregroundColor: Colors.white,
-                                  side: BorderSide(
-                                    color: _gold.withValues(alpha: 0.55),
-                                  ),
-                                ),
-                                child: Text(_isSpanish ? 'Izquierda' : 'Left'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: FilledButton(
-                                onPressed:
-                                    () => Navigator.pop(
-                                      context,
-                                      _BoardSide.right,
-                                    ),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE53935),
-                                  foregroundColor: Colors.white,
-                                  side: BorderSide(
-                                    color: _gold.withValues(alpha: 0.55),
-                                  ),
-                                ),
-                                child: Text(_isSpanish ? 'Derecha' : 'Right'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+  Future<_BoardSide?> _askSideForTile(_DominoTile tile) async {
+    final previousChoice = _sideChoiceCompleter;
+    if (previousChoice != null && !previousChoice.isCompleted) {
+      previousChoice.complete(null);
+    }
+    final choice = Completer<_BoardSide?>();
+    setState(() {
+      _sideChoiceTile = tile;
+      _sideChoiceCompleter = choice;
+    });
+    try {
+      return await choice.future;
+    } finally {
+      if (mounted && identical(_sideChoiceCompleter, choice)) {
+        setState(() {
+          _sideChoiceTile = null;
+          _sideChoiceCompleter = null;
+        });
+      }
+    }
+  }
+
+  void _finishSideChoice(_BoardSide? side) {
+    final choice = _sideChoiceCompleter;
+    if (choice == null || choice.isCompleted) return;
+    choice.complete(side);
+  }
+
+  Widget _buildSideChoicePrompt() {
+    final tile = _sideChoiceTile;
+    if (tile == null) return const SizedBox.shrink();
+    return Container(
+      key: const ValueKey('block-side-choice-prompt'),
+      constraints: const BoxConstraints(maxWidth: 430),
+      padding: const EdgeInsets.fromLTRB(10, 7, 6, 7),
+      decoration: BoxDecoration(
+        color: const Color(0xF5101820),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _gold.withValues(alpha: 0.62), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.38),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          _DominoWidget(
+            tile: tile,
+            vertical: tile.isDouble,
+            highlighted: false,
+            color: const Color(0xFFFFF6DF),
+            width: 25,
+            height: 46,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              _isSpanish
+                  ? 'Toca la ficha roja o azul en la mesa'
+                  : 'Tap the red or blue tile on the table',
+              maxLines: 2,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+                height: 1.15,
               ),
             ),
           ),
+          IconButton(
+            key: const ValueKey('block-side-choice-cancel'),
+            tooltip: _isSpanish ? 'Cancelar' : 'Cancel',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _finishSideChoice(null),
+            icon: const Icon(Icons.close_rounded, color: Colors.white70),
+          ),
+        ],
+      ),
     );
   }
 
@@ -399,6 +449,15 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       _cpuThinking = false;
       _isPlayerTurn = true;
     });
+    if (move != null) {
+      unawaited(
+        AudioManager.instance.playSfx(
+          move.tile.isDouble
+              ? AudioAssets.dominoDouble
+              : AudioAssets.dominoPlace,
+        ),
+      );
+    }
     _scrollPlayerHandToPlayableStart();
 
     _checkRoundEnd();
@@ -445,6 +504,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       _isPlayerTurn = false;
       _setStatus(_isSpanish ? 'Pasaste' : 'You passed');
     });
+    unawaited(AudioManager.instance.playSfx(AudioAssets.turnNotification));
     await _playCpuTurn();
   }
 
@@ -537,8 +597,9 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       final playerWinsBlock =
           playerPoints < cpuPoints ||
           (playerPoints == cpuPoints && _lastTileOwner == _TileOwner.player);
+      final combinedPoints = playerPoints + cpuPoints;
       if (playerWinsBlock) {
-        final gained = cpuPoints - playerPoints;
+        final gained = combinedPoints;
         _playerScore += gained;
         playerGained = gained;
         winner = _RoundWinner.player;
@@ -547,7 +608,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
                 ? 'Ronda bloqueada: ganaste +$gained'
                 : 'Blocked round: you won +$gained';
       } else {
-        final gained = playerPoints - cpuPoints;
+        final gained = combinedPoints;
         _cpuScore += gained;
         winner = _RoundWinner.cpu;
         result =
@@ -567,6 +628,21 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       _cpuThinking = false;
       _setStatus(result!, keepVisible: true);
     });
+    unawaited(
+      AudioManager.instance.playSfx(
+        _matchOver ? AudioAssets.gameOver : AudioAssets.roundWin,
+      ),
+    );
+    if (_matchOver) {
+      unawaited(
+        AudioManager.instance.playMusic(
+          winner == _RoundWinner.player
+              ? AudioAssets.victoryMusic
+              : AudioAssets.defeatMusic,
+          loop: false,
+        ),
+      );
+    }
     if (_matchOver) {
       setState(() => _showConfetti = true);
       _confettiController
@@ -627,6 +703,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
           ),
         ),
         child: SafeArea(
+          bottom: false,
           child: Padding(
             padding: EdgeInsets.fromLTRB(12, 8, 12, max(10, bottomPadding)),
             child: Column(
@@ -637,10 +714,6 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
                 AnchoredAdaptiveBannerAd(
                   adUnitId: _adUnitId,
                   margin: const EdgeInsets.only(top: 8),
-                ),
-                const AppVersionLabel(
-                  padding: EdgeInsets.only(top: 4),
-                  fontSize: 10,
                 ),
               ],
             ),
@@ -662,12 +735,13 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
         Row(
           children: [
             IconButton(
-              onPressed:
-                  () => Navigator.pushNamed(
-                    context,
-                    '/start-game',
-                    arguments: {'resumeClassicGame': true},
-                  ),
+              onPressed: () {
+                Navigator.pushNamed(
+                  context,
+                  '/start-game',
+                  arguments: {'resumeClassicGame': !_matchOver},
+                );
+              },
               tooltip: _isSpanish ? 'Inicio del juego' : 'Game home',
               icon: const Icon(Icons.home_rounded, color: Colors.white),
             ),
@@ -705,6 +779,11 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
               ),
             ),
             IconButton(
+              onPressed: () => Navigator.pushNamed(context, '/kapi-store'),
+              tooltip: _isSpanish ? 'Personalizar' : 'Personalize',
+              icon: const Icon(Icons.palette_rounded, color: Colors.white),
+            ),
+            IconButton(
               onPressed: _showQuickOptions,
               icon: const Icon(Icons.settings_rounded, color: Colors.white),
             ),
@@ -726,165 +805,123 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   void _showQuickOptions() {
     showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
       backgroundColor: const Color(0xFF101820),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder:
-          (context) => SafeArea(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * 0.86,
-              ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      _isSpanish ? 'Opciones del juego' : 'Game options',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
+          (sheetContext) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _isSpanish ? 'Menu del juego' : 'Game menu',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
                     ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _startNewRound();
-                      },
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: Text(_isSpanish ? 'Nueva ronda' : 'New round'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFE53935),
-                        foregroundColor: Colors.white,
-                      ),
+                  ),
+                  const SizedBox(height: 14),
+                  const GameAudioControls(compact: true),
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      unawaited(_confirmEndCpuGame());
+                    },
+                    icon: const Icon(Icons.exit_to_app_rounded),
+                    label: Text(_isSpanish ? 'Terminar partida' : 'End game'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFE53935),
+                      foregroundColor: Colors.white,
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.pushNamed(
-                          context,
-                          '/game',
-                          arguments: {'fromDominoGame': true},
-                        );
-                      },
-                      icon: const Icon(Icons.edit_note_rounded),
-                      label: Text(_isSpanish ? 'Seguir apuntes' : 'Open notes'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.22),
-                        ),
-                      ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      Navigator.pushNamed(context, '/game-settings');
+                    },
+                    icon: const Icon(Icons.sports_esports_rounded),
+                    label: Text(
+                      _isSpanish ? 'Configuracion del juego' : 'Game Settings',
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.pushNamed(context, '/ranking');
-                      },
-                      icon: const Icon(Icons.leaderboard_rounded),
-                      label: Text(_isSpanish ? 'Ranking' : 'Ranking'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.22),
-                        ),
-                      ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.pushNamed(context, '/lobby');
-                      },
-                      icon: const Icon(Icons.groups_2_rounded),
-                      label: Text(_isSpanish ? 'Lobby y amigos' : 'Lobby'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(color: _gold.withValues(alpha: 0.45)),
-                      ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      Navigator.pushNamed(context, '/note-settings');
+                    },
+                    icon: const Icon(Icons.edit_note_rounded),
+                    label: Text(
+                      _isSpanish ? 'Configuracion de apuntes' : 'Note Settings',
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        setState(() => _largeCenterTile = !_largeCenterTile);
-                        Navigator.pop(context);
-                      },
-                      icon: const Icon(Icons.zoom_out_map_rounded),
-                      label: Text(
-                        _largeCenterTile
-                            ? (_isSpanish
-                                ? 'Centro normal'
-                                : 'Normal center tile')
-                            : (_isSpanish
-                                ? 'Centro mas grande'
-                                : 'Bigger center tile'),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(color: _gold.withValues(alpha: 0.45)),
-                      ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _playedTileScale =
-                              _playedTileScale >= 1.14
-                                  ? 0.94
-                                  : _playedTileScale + 0.10;
-                        });
-                        Navigator.pop(context);
-                      },
-                      icon: const Icon(Icons.aspect_ratio_rounded),
-                      label: Text(
-                        _isSpanish
-                            ? 'Tamano fichas mesa ${(_playedTileScale * 100).round()}%'
-                            : 'Table tile size ${(_playedTileScale * 100).round()}%',
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(color: _gold.withValues(alpha: 0.45)),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded),
-                      label: Text(_isSpanish ? 'Cerrar' : 'Close'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.22),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
     );
   }
 
+  Future<void> _confirmEndCpuGame() async {
+    final endGame = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: Text(_isSpanish ? 'Terminar partida' : 'End game'),
+            content: Text(
+              _isSpanish
+                  ? 'Se perdera el progreso de esta partida contra CPU.'
+                  : 'Progress in this CPU match will be lost.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(_isSpanish ? 'Terminar' : 'End game'),
+              ),
+            ],
+          ),
+    );
+    if (endGame != true || !mounted) return;
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      '/start-game',
+      (route) => route.isFirst,
+    );
+  }
+
   Widget _buildTable() {
+    final tableStyle = KapiCosmeticsService.instance.equipped(
+      KapiCosmeticType.table,
+    );
+    final dominoStyle = KapiCosmeticsService.instance.equipped(
+      KapiCosmeticType.domino,
+    );
     final compact = MediaQuery.sizeOf(context).width < 520;
-    const handHeight = 78.0;
+    final handHeight = 78.0 * _handTileScale;
     const handBottom = 8.0;
-    const statusBottom = handHeight + handBottom + 10;
+    final statusBottom = handHeight + handBottom + 10;
     final showPassAction = _shouldShowPassAction;
     return Container(
       decoration: BoxDecoration(
-        color: _tableGreen,
+        color: tableStyle.primary,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFF6B4424), width: 8),
         boxShadow: const [
           BoxShadow(
             color: Colors.black54,
@@ -896,6 +933,15 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: KapiTableCenterMaterial(
+                fallbackColor: tableStyle.primary,
+                assetPath: tableStyle.previewAsset,
+              ),
+            ),
+          ),
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -909,7 +955,23 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
               ),
             ),
           ),
+          const Positioned.fill(child: KapiCenterpieceOverlay()),
+          // Keep the table frame above the table material but below every
+          // game control. A foregroundDecoration used to paint this border
+          // over the profile cards and cut them with a horizontal gold line.
+          Positioned.fill(
+            key: const ValueKey('block-table-frame-layer'),
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: tableStyle.secondary, width: 8),
+                ),
+              ),
+            ),
+          ),
           Positioned(
+            key: const ValueKey('block-table-profile-layer'),
             top: -6,
             left: 8,
             right: 8,
@@ -947,13 +1009,18 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
             bottom: statusBottom + 34,
             child: _BoardView(
               board: _board,
-              centerTileScale: _largeCenterTile ? 1.18 : 1.0,
+              centerTileScale: 1.0,
               playedTileScale: _playedTileScale,
+              dominoColor: dominoStyle.primary,
+              dominoPipColor: dominoStyle.secondary,
+              sideChoiceTile: _sideChoiceTile,
+              sideChoicePulse: _sideChoicePulse,
+              onSideChoice: _finishSideChoice,
             ),
           ),
           Positioned(
-            left: 10,
-            right: 10,
+            left: -2,
+            right: -2,
             bottom: handBottom,
             child: _buildPlayerHandArea(handHeight),
           ),
@@ -963,6 +1030,13 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
             bottom: statusBottom,
             child: _buildStatusBar(showPassAction: showPassAction),
           ),
+          if (_sideChoiceTile != null)
+            Positioned(
+              top: compact ? 2 : 8,
+              left: 8,
+              right: 8,
+              child: Center(child: _buildSideChoicePrompt()),
+            ),
           if (_roundOver && _matchOver && _showConfetti)
             Positioned.fill(
               child: IgnorePointer(
@@ -977,7 +1051,13 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
                 ),
               ),
             ),
-          if (_roundOver) Center(child: _buildRoundOverCard()),
+          if (_roundOver)
+            Positioned.fill(
+              child: DominoResultCelebration(
+                showConfetti: _matchOver,
+                child: _buildRoundOverCard(),
+              ),
+            ),
         ],
       ),
     );
@@ -990,7 +1070,9 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
         vertical: compact ? 6 : 7,
       ),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.38),
+        // Solid enough to mask the table frame when the badge overlaps the
+        // top edge. This keeps the round card visually above the table.
+        color: const Color(0xFF211B18),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: _gold.withValues(alpha: 0.34)),
         boxShadow: [
@@ -1030,7 +1112,10 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   Widget _buildProfileBadge({required bool isCpu, bool compact = false}) {
     final title = isCpu ? 'CPU' : _profile.initials;
     final score = isCpu ? _cpuScore : _playerScore;
-    final tierVisual = DominoTierVisual.fromScore(score, ranked: !isCpu);
+    final tierVisual = DominoTierVisual.fromScore(
+      isCpu ? 0 : _profilePoints,
+      ranked: !isCpu,
+    );
     final icon = isCpu ? Icons.smart_toy_rounded : _profile.icon;
     final color =
         isCpu
@@ -1043,89 +1128,350 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
             : (tierVisual.isRanked
                 ? tierVisual.frameColor()
                 : Colors.white.withValues(alpha: 0.18));
+    final flag = KapiCosmeticsService.instance.equipped(KapiCosmeticType.flag);
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 10,
-        vertical: compact ? 7 : 8,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: isActive ? 0.50 : 0.42),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: isActive ? 1.4 : 1),
-        boxShadow:
-            tierVisual.shadows(active: isActive).isEmpty
-                ? null
-                : tierVisual.shadows(active: isActive),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: compact ? 34 : 42,
-            height: compact ? 34 : 42,
-            decoration: BoxDecoration(
-              gradient:
-                  tierVisual.isRanked
-                      ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [tierVisual.accent, color],
-                      )
-                      : null,
-              color: tierVisual.isRanked ? null : color,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: tierVisual.frameColor(active: isActive),
-              ),
-              boxShadow:
-                  tierVisual.isRanked
-                      ? [
-                        BoxShadow(
-                          color: tierVisual.accent.withValues(alpha: 0.24),
-                          blurRadius: compact ? 8 : 12,
-                        ),
-                      ]
-                      : null,
+    return Semantics(
+      button: true,
+      label:
+          isCpu
+              ? (_isSpanish ? 'Abrir perfil de CPU' : 'Open CPU profile')
+              : (_isSpanish ? 'Abrir tu perfil' : 'Open your profile'),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: ValueKey(isCpu ? 'block-profile-cpu' : 'block-profile-player'),
+          onTap: () => _showBlockPlayerProfile(isCpu: isCpu),
+          borderRadius: BorderRadius.circular(16),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 8 : 10,
+              vertical: compact ? 7 : 8,
             ),
-            child: Icon(icon, color: Colors.white, size: compact ? 20 : 24),
-          ),
-          SizedBox(width: compact ? 6 : 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: compact ? 13 : 15,
+            decoration: BoxDecoration(
+              // Profile cards sit above the table edge, so their surface must
+              // be opaque; otherwise the gold frame remains visible through
+              // the card and appears to cut the profile in half.
+              color:
+                  isActive ? const Color(0xFF2B211C) : const Color(0xFF211B18),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderColor, width: isActive ? 1.4 : 1),
+              boxShadow:
+                  tierVisual.shadows(active: isActive).isEmpty
+                      ? null
+                      : tierVisual.shadows(active: isActive),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.max,
+              children: [
+                Container(
+                  width: compact ? 34 : 42,
+                  height: compact ? 34 : 42,
+                  decoration: BoxDecoration(
+                    gradient:
+                        tierVisual.isRanked
+                            ? LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [tierVisual.accent, color],
+                            )
+                            : null,
+                    color: tierVisual.isRanked ? null : color,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: tierVisual.frameColor(active: isActive),
+                    ),
+                    boxShadow:
+                        tierVisual.isRanked
+                            ? [
+                              BoxShadow(
+                                color: tierVisual.accent.withValues(
+                                  alpha: 0.24,
+                                ),
+                                blurRadius: compact ? 8 : 12,
+                              ),
+                            ]
+                            : null,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child:
+                      isCpu
+                          ? Icon(
+                            icon,
+                            color: Colors.white,
+                            size: compact ? 20 : 24,
+                          )
+                          : DominoAvatarVisual(
+                            avatarKey: _profile.avatarKey,
+                            fallbackIcon: icon,
+                            backgroundColor: color,
+                          ),
                 ),
-              ),
-              Text(
-                '$score/$_targetScore pts',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.78),
-                  fontWeight: FontWeight.w700,
-                  fontSize: compact ? 10 : 11,
-                ),
-              ),
-              if (!compact) ...[
-                const SizedBox(height: 2),
-                _buildTierChip(
-                  isCpu && _isSpanish ? 'No clasificatorio' : tierVisual.label,
-                  tierVisual,
+                SizedBox(width: compact ? 6 : 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        !isCpu && flag.id != 'flag_none'
+                            ? '${flag.emoji} $title'
+                            : title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: compact ? 13 : 15,
+                        ),
+                      ),
+                      Text(
+                        '$score/$_targetScore pts',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.78),
+                          fontWeight: FontWeight.w700,
+                          fontSize: compact ? 10 : 11,
+                        ),
+                      ),
+                      if (!compact) ...[
+                        const SizedBox(height: 2),
+                        _buildTierChip(
+                          isCpu && _isSpanish
+                              ? 'No clasificatorio'
+                              : tierVisual.label,
+                          tierVisual,
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ],
-            ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _countryFlag(String countryCode) {
+    final normalized = countryCode.trim().toUpperCase();
+    if (!RegExp(r'^[A-Z]{2}$').hasMatch(normalized)) return '🌐';
+    return String.fromCharCodes(
+      normalized.codeUnits.map((character) => character + 127397),
+    );
+  }
+
+  Widget _profileInfoTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color accent,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.11),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: accent.withValues(alpha: 0.38)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: accent, size: 18),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showBlockPlayerProfile({required bool isCpu}) async {
+    final tier = DominoTierVisual.fromScore(
+      isCpu ? 0 : _profilePoints,
+      ranked: !isCpu,
+    );
+    final accent = isCpu ? const Color(0xFFFF6B6B) : const Color(0xFF64B5F6);
+    final name = isCpu ? 'CPU' : _profile.initials;
+    final avatarKey = isCpu ? 'robot' : _profile.avatarKey;
+    final avatarColor =
+        isCpu ? const Color(0xFF795548) : tier.avatarBackground(_profile.color);
+    final tiles = isCpu ? _cpuHand.length : _playerHand.length;
+    final matchScore = isCpu ? _cpuScore : _playerScore;
+    final publicId = isCpu ? 'CPU-BLOCK' : _profile.publicId;
+    final country = isCpu ? 'CPU' : _profile.countryCode;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black87,
+      builder: (sheetContext) {
+        return Container(
+          key: ValueKey(
+            isCpu ? 'block-cpu-profile-sheet' : 'block-player-profile-sheet',
+          ),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.82,
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 22),
+          decoration: BoxDecoration(
+            color: const Color(0xFA101923),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border(top: BorderSide(color: accent, width: 2.5)),
+            boxShadow: [
+              BoxShadow(color: accent.withValues(alpha: 0.25), blurRadius: 24),
+            ],
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Icon(
+                      isCpu ? Icons.smart_toy_rounded : Icons.badge_rounded,
+                      color: accent,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isCpu
+                            ? (_isSpanish ? 'Perfil de CPU' : 'CPU profile')
+                            : (_isSpanish ? 'Tu perfil' : 'Your profile'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close_rounded),
+                      color: Colors.white70,
+                    ),
+                  ],
+                ),
+                Container(
+                  key: const ValueKey('block-player-avatar-large'),
+                  width: 122,
+                  height: 122,
+                  decoration: BoxDecoration(
+                    color: avatarColor.withValues(alpha: 0.22),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: tier.accent, width: 3),
+                    boxShadow: tier.shadows(active: true),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: DominoAvatarVisual(
+                    avatarKey: avatarKey,
+                    fallbackIcon:
+                        isCpu ? Icons.smart_toy_rounded : _profile.icon,
+                    backgroundColor: avatarColor,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  isCpu ? name : '${_countryFlag(country)}  $name',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  publicId,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _profileInfoTile(
+                        icon: tier.icon,
+                        label: _isSpanish ? 'Nivel' : 'Tier',
+                        value: isCpu ? 'CPU' : '${tier.label} ${tier.level}',
+                        accent: tier.accent,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _profileInfoTile(
+                        icon: Icons.stars_rounded,
+                        label: _isSpanish ? 'Puntos' : 'Points',
+                        value: isCpu ? '—' : '$_profilePoints',
+                        accent: _gold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _profileInfoTile(
+                        icon: Icons.scoreboard_rounded,
+                        label: _isSpanish ? 'Partida' : 'Match',
+                        value: '$matchScore/$_targetScore',
+                        accent: accent,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _profileInfoTile(
+                        icon: Icons.view_week_rounded,
+                        label: _isSpanish ? 'Fichas' : 'Tiles',
+                        value: '$tiles',
+                        accent: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1316,22 +1662,20 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   }
 
   Widget _buildPlayerHand(double height) {
+    final dominoStyle = KapiCosmeticsService.instance.equipped(
+      KapiCosmeticType.domino,
+    );
     final displayHand = _orderedPlayerHandForDisplay();
-    return Container(
-      height: height,
-      padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.27),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+    return AdaptiveDominoHandTray(
+      key: const ValueKey('block-adaptive-hand-tray'),
+      dominoColor: dominoStyle.primary,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 6, 4, 4),
         child: ListView.separated(
           controller: _playerHandScrollController,
           scrollDirection: Axis.horizontal,
           itemCount: displayHand.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 7),
+          separatorBuilder: (_, __) => const SizedBox(width: 5),
           itemBuilder: (context, index) {
             final tile = displayHand[index];
             final playable =
@@ -1345,9 +1689,10 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
                   tile: tile,
                   vertical: true,
                   highlighted: playable,
-                  color: Colors.white,
-                  width: 52,
-                  height: 60,
+                  color: dominoStyle.primary,
+                  pipColor: dominoStyle.secondary,
+                  width: 52 * _handTileScale,
+                  height: 60 * _handTileScale,
                 ),
               ),
             );
@@ -1642,11 +1987,21 @@ class _BoardView extends StatelessWidget {
     required this.board,
     required this.centerTileScale,
     required this.playedTileScale,
+    required this.dominoColor,
+    required this.dominoPipColor,
+    this.sideChoiceTile,
+    this.sideChoicePulse,
+    this.onSideChoice,
   });
 
   final List<_BoardDomino> board;
   final double centerTileScale;
   final double playedTileScale;
+  final Color dominoColor;
+  final Color dominoPipColor;
+  final _DominoTile? sideChoiceTile;
+  final Animation<double>? sideChoicePulse;
+  final ValueChanged<_BoardSide>? onSideChoice;
 
   @override
   Widget build(BuildContext context) {
@@ -1661,7 +2016,74 @@ class _BoardView extends StatelessWidget {
           Size(tileW, tileH),
           constraints.biggest,
         );
-        return Stack(
+        final previews = <_DominoSidePreview>[];
+        if (sideChoiceTile != null && board.isNotEmpty) {
+          previews
+            ..add(
+              _previewForSide(
+                tile: sideChoiceTile!,
+                side: _BoardSide.left,
+                currentPositions: positions,
+                tileSize: Size(tileW, tileH),
+                boardSize: constraints.biggest,
+              ),
+            )
+            ..add(
+              _previewForSide(
+                tile: sideChoiceTile!,
+                side: _BoardSide.right,
+                currentPositions: positions,
+                tileSize: Size(tileW, tileH),
+                boardSize: constraints.biggest,
+              ),
+            );
+        }
+        var contentBounds = Rect.zero;
+        void includePosition(_DominoPosition position) {
+          final size =
+              _drawSize(Size(tileW, tileH), position.vertical) *
+              position.scaleFactor;
+          final rect = Rect.fromLTWH(
+            position.dx,
+            position.dy,
+            size.width,
+            size.height,
+          );
+          contentBounds =
+              contentBounds == Rect.zero
+                  ? rect
+                  : contentBounds.expandToInclude(rect);
+        }
+
+        for (final position in positions) {
+          includePosition(position);
+        }
+        for (final preview in previews) {
+          includePosition(preview.position);
+        }
+        final fitScale =
+            previews.isEmpty
+                ? 1.0
+                : min(
+                  1.0,
+                  min(
+                    max(1.0, constraints.maxWidth - 8) /
+                        max(1.0, contentBounds.width),
+                    max(1.0, constraints.maxHeight - 8) /
+                        max(1.0, contentBounds.height),
+                  ),
+                );
+        final fitOffset =
+            previews.isEmpty
+                ? Offset.zero
+                : Offset(
+                  (constraints.maxWidth - contentBounds.width * fitScale) / 2 -
+                      contentBounds.left * fitScale,
+                  (constraints.maxHeight - contentBounds.height * fitScale) /
+                          2 -
+                      contentBounds.top * fitScale,
+                );
+        final content = Stack(
           clipBehavior: Clip.none,
           children: [
             for (var i = 0; i < board.length; i++)
@@ -1675,20 +2097,147 @@ class _BoardView extends StatelessWidget {
                           : board[i].tile,
                   vertical: positions[i].vertical,
                   highlighted: board[i].isFirst,
-                  color:
-                      board[i].isFirst
-                          ? const Color(0xFF1FBF68)
-                          : (board[i].tile.isDouble
-                              ? const Color(0xFF1E88E5)
-                              : const Color(0xFFFFF6DF)),
+                  color: dominoColor,
+                  pipColor: dominoPipColor,
                   width: tileW * positions[i].scaleFactor,
                   height: tileH * positions[i].scaleFactor,
                 ),
               ),
+            for (final preview in previews)
+              _buildSideChoicePreview(
+                preview: preview,
+                tileSize: Size(tileW, tileH),
+              ),
           ],
+        );
+        if (previews.isEmpty) return content;
+        return ClipRect(
+          child: Transform.translate(
+            offset: fitOffset,
+            child: Transform.scale(
+              alignment: Alignment.topLeft,
+              scale: fitScale,
+              child: content,
+            ),
+          ),
         );
       },
     );
+  }
+
+  Widget _buildSideChoicePreview({
+    required _DominoSidePreview preview,
+    required Size tileSize,
+  }) {
+    const tapPadding = 12.0;
+    final visualSize =
+        _drawSize(tileSize, preview.position.vertical) *
+        preview.position.scaleFactor;
+    final label =
+        preview.side == _BoardSide.left
+            ? 'Play on the red tile'
+            : 'Play on the blue tile';
+
+    return Positioned(
+      left: preview.position.dx - tapPadding,
+      top: preview.position.dy - tapPadding,
+      child: BlockSideChoiceTapTarget(
+        key: ValueKey('block-side-preview-${preview.side.name}'),
+        visualWidth: visualSize.width,
+        visualHeight: visualSize.height,
+        tapPadding: tapPadding,
+        semanticsLabel: label,
+        onTap: () => onSideChoice?.call(preview.side),
+        child: AnimatedBuilder(
+          animation: sideChoicePulse ?? const AlwaysStoppedAnimation(0.5),
+          builder: (context, child) {
+            final pulse = Curves.easeInOut.transform(
+              sideChoicePulse?.value ?? 0.5,
+            );
+            return Opacity(
+              opacity: 0.58 + pulse * 0.42,
+              child: Transform.scale(scale: 0.94 + pulse * 0.10, child: child),
+            );
+          },
+          child: _DominoWidget(
+            tile: preview.tile,
+            vertical: preview.position.vertical,
+            highlighted: true,
+            color: preview.color,
+            pipColor: Colors.white,
+            borderColor: Colors.white,
+            shadowColor: preview.color,
+            width: tileSize.width * preview.position.scaleFactor,
+            height: tileSize.height * preview.position.scaleFactor,
+          ),
+        ),
+      ),
+    );
+  }
+
+  _DominoSidePreview _previewForSide({
+    required _DominoTile tile,
+    required _BoardSide side,
+    required List<_DominoPosition> currentPositions,
+    required Size tileSize,
+    required Size boardSize,
+  }) {
+    final open = side == _BoardSide.left ? board.first.left : board.last.right;
+    final placed = switch (side) {
+      _BoardSide.left => tile.right == open ? tile : tile.flipped,
+      _BoardSide.right => tile.left == open ? tile : tile.flipped,
+    };
+    final hypothetical = <_BoardDomino>[
+      if (side == _BoardSide.left) _BoardDomino.fromTile(placed),
+      ...board,
+      if (side == _BoardSide.right) _BoardDomino.fromTile(placed),
+    ];
+    final hypotheticalPositions = _layoutBoard(
+      hypothetical,
+      tileSize,
+      boardSize,
+    );
+    final candidateIndex =
+        side == _BoardSide.left ? 0 : hypothetical.length - 1;
+    final hypotheticalNeighborIndex =
+        side == _BoardSide.left ? 1 : hypothetical.length - 2;
+    final currentNeighborIndex = side == _BoardSide.left ? 0 : board.length - 1;
+    final candidate = hypotheticalPositions[candidateIndex];
+    final hypotheticalNeighbor =
+        hypotheticalPositions[hypotheticalNeighborIndex];
+    final currentNeighbor = currentPositions[currentNeighborIndex];
+    final ratio =
+        currentNeighbor.scaleFactor / hypotheticalNeighbor.scaleFactor;
+    final candidateCenter =
+        _positionCenter(currentNeighbor, tileSize) +
+        (_positionCenter(candidate, tileSize) -
+                _positionCenter(hypotheticalNeighbor, tileSize)) *
+            ratio;
+    final candidateScale = candidate.scaleFactor * ratio;
+    final candidateSize =
+        _drawSize(tileSize, candidate.vertical) * candidateScale;
+    final position = _DominoPosition(
+      candidateCenter.dx - candidateSize.width / 2,
+      candidateCenter.dy - candidateSize.height / 2,
+      candidate.vertical,
+      candidateScale,
+      candidate.flipVisual,
+      candidate.layoutDirection,
+    );
+    return _DominoSidePreview(
+      side: side,
+      tile: candidate.flipVisual ? placed.flipped : placed,
+      position: position,
+      color:
+          side == _BoardSide.left
+              ? const Color(0xFFE53935)
+              : const Color(0xFF1976D2),
+    );
+  }
+
+  Offset _positionCenter(_DominoPosition position, Size tileSize) {
+    final size = _drawSize(tileSize, position.vertical) * position.scaleFactor;
+    return Offset(position.dx + size.width / 2, position.dy + size.height / 2);
   }
 
   List<_DominoPosition> _layoutBoard(
@@ -2121,6 +2670,9 @@ class _DominoWidget extends StatelessWidget {
     required this.color,
     required this.width,
     required this.height,
+    this.pipColor = Colors.black87,
+    this.borderColor,
+    this.shadowColor = Colors.black38,
   });
 
   final _DominoTile tile;
@@ -2129,6 +2681,9 @@ class _DominoWidget extends StatelessWidget {
   final Color color;
   final double width;
   final double height;
+  final Color pipColor;
+  final Color? borderColor;
+  final Color shadowColor;
 
   @override
   Widget build(BuildContext context) {
@@ -2141,29 +2696,43 @@ class _DominoWidget extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
           color:
-              highlighted ? const Color(0xFFFFD36B) : const Color(0xFF1F1B17),
+              borderColor ??
+              (highlighted ? const Color(0xFFFFD36B) : const Color(0xFF1F1B17)),
           width: highlighted ? 2.2 : 1.4,
         ),
-        boxShadow: const [
-          BoxShadow(color: Colors.black38, blurRadius: 2, offset: Offset(0, 1)),
+        boxShadow: [
+          BoxShadow(
+            color: shadowColor,
+            blurRadius: 5,
+            offset: const Offset(0, 1),
+          ),
         ],
       ),
       child: CustomPaint(
-        painter: _DominoPainter(tile: tile, vertical: vertical),
+        painter: _DominoPainter(
+          tile: tile,
+          vertical: vertical,
+          pipColor: pipColor,
+        ),
       ),
     );
   }
 }
 
 class _DominoPainter extends CustomPainter {
-  const _DominoPainter({required this.tile, required this.vertical});
+  const _DominoPainter({
+    required this.tile,
+    required this.vertical,
+    this.pipColor = Colors.black87,
+  });
 
   final _DominoTile tile;
   final bool vertical;
+  final Color pipColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final pipPaint = Paint()..color = Colors.black87;
+    final pipPaint = Paint()..color = pipColor;
     final linePaint =
         Paint()
           ..color = Colors.black26
@@ -2252,7 +2821,9 @@ class _DominoPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DominoPainter oldDelegate) {
-    return oldDelegate.tile != tile || oldDelegate.vertical != vertical;
+    return oldDelegate.tile != tile ||
+        oldDelegate.vertical != vertical ||
+        oldDelegate.pipColor != pipColor;
   }
 }
 
@@ -2345,6 +2916,56 @@ class _DominoPosition extends Offset {
   final double scaleFactor;
   final bool flipVisual;
   final _LayoutDirection layoutDirection;
+}
+
+class _DominoSidePreview {
+  const _DominoSidePreview({
+    required this.side,
+    required this.tile,
+    required this.position,
+    required this.color,
+  });
+
+  final _BoardSide side;
+  final _DominoTile tile;
+  final _DominoPosition position;
+  final Color color;
+}
+
+/// Makes the complete painted red/blue Block preview respond to a tap,
+/// including a small margin around the animated domino.
+class BlockSideChoiceTapTarget extends StatelessWidget {
+  const BlockSideChoiceTapTarget({
+    super.key,
+    required this.visualWidth,
+    required this.visualHeight,
+    required this.semanticsLabel,
+    required this.onTap,
+    required this.child,
+    this.tapPadding = 12,
+  });
+
+  final double visualWidth;
+  final double visualHeight;
+  final double tapPadding;
+  final String semanticsLabel;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: semanticsLabel,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: visualWidth + tapPadding * 2,
+        height: visualHeight + tapPadding * 2,
+        child: Center(child: child),
+      ),
+    ),
+  );
 }
 
 class _LogicalDominoPosition {

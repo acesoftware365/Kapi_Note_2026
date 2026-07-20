@@ -9,10 +9,15 @@
       "client_info": {
         "mobilesdk_app_id": "1:374261583168:android:e181c523a4cd2cb5f4fea5",
         "android_client_info": {
-          "package_name": "com.liisgo.kapi.note"
+          "package_name": "com.example.dominoes_note2025"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "374261583168-8iv0s3n16oklm7iesi84ts3otld8t11s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCeBsqNcTct5KHbOYpwEIhS62whGMbGgi8"
@@ -20,7 +25,71 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "374261583168-8iv0s3n16oklm7iesi84ts3otld8t11s.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "374261583168-3jr6i253avt8v1qbl2eco7js7lqr9278.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.dominoesNote2025"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:374261583168:android:8abb77eec508797af4fea5",
+        "android_client_info": {
+          "package_name": "com.liisgo.kapi.note"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "374261583168-brkng0c6g6d4a22t0p9ktvncbd2nr54m.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.liisgo.kapi.note",
+            "certificate_hash": "d2759318a56ac70ed00314ad85e66f1bf425f77d"
+          }
+        },
+        {
+          "client_id": "374261583168-okolrhckfeq1lm20agd0bfjo3tqir0h6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.liisgo.kapi.note",
+            "certificate_hash": "513b8421291fea59173edf8632c3e53878fa6dca"
+          }
+        },
+        {
+          "client_id": "374261583168-8iv0s3n16oklm7iesi84ts3otld8t11s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCeBsqNcTct5KHbOYpwEIhS62whGMbGgi8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "374261583168-8iv0s3n16oklm7iesi84ts3otld8t11s.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "374261583168-3jr6i253avt8v1qbl2eco7js7lqr9278.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.dominoesNote2025"
+              }
+            }
+          ]
         }
       }
     }

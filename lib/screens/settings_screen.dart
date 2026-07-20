@@ -9,11 +9,7 @@ import '../locale_notifier.dart'; // Import locale notifier
 import '../theme_notifier.dart'; // Import theme notifier
 import '../game_settings_notifier.dart'; // NEW: Import game settings notifier
 import '../font_size_notifier.dart'; // NEW: Import font size notifier
-import '../premium_notifier.dart';
-import '../services/subscription_management_service.dart';
-import 'about_screen.dart'; // NEW: Import the about screen
 import '../widgets/anchored_adaptive_banner_ad.dart';
-import '../widgets/app_footer.dart';
 
 class SettingsScreen extends StatefulWidget {
   // Changed to StatefulWidget to manage ad lifecycle
@@ -24,582 +20,580 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  /// //////////////////////////////////////////////////////////////////////////////////////////////////////////
-  // TODO: Replace this test ad unit ID with your own banner ad unit ID.
-  final String _adUnitId =
-      (defaultTargetPlatform ==
-              TargetPlatform.android) // FIXED: Using defaultTargetPlatform
-          ? 'ca-app-pub-8588489900323524/2555306020' // Test Android Banner
-          : 'ca-app-pub-8588489900323524/9168815834'; // Test iOS Banner
+  String get _adUnitId =>
+      defaultTargetPlatform == TargetPlatform.android
+          ? 'ca-app-pub-8588489900323524/2555306020'
+          : 'ca-app-pub-8588489900323524/9168815834';
 
   @override
-  Widget build(BuildContext context) {
-    final AppLocalizations appLocalizations = AppLocalizations.of(context)!;
-    final localeNotifier = Provider.of<LocaleNotifier>(context);
-    final themeNotifier = Provider.of<ThemeNotifier>(context);
-    final gameSettingsNotifier = Provider.of<GameSettingsNotifier>(context);
-    final fontSizeNotifier = Provider.of<FontSizeNotifier>(context);
-    final premiumNotifier = Provider.of<PremiumNotifier>(context);
+  Widget build(BuildContext outerContext) {
+    final AppLocalizations appLocalizations =
+        AppLocalizations.of(outerContext)!;
+    final localeNotifier = Provider.of<LocaleNotifier>(outerContext);
+    final themeNotifier = Provider.of<ThemeNotifier>(outerContext);
+    final gameSettingsNotifier = Provider.of<GameSettingsNotifier>(
+      outerContext,
+    );
+    final fontSizeNotifier = Provider.of<FontSizeNotifier>(outerContext);
     final currentLocale =
         localeNotifier.locale ??
-        _supportedLocaleFor(Localizations.localeOf(context));
+        _supportedLocaleFor(Localizations.localeOf(outerContext));
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const SizedBox.shrink(),
-        automaticallyImplyLeading: false,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          tooltip:
-              Localizations.localeOf(context).languageCode == 'es'
-                  ? 'Volver'
-                  : 'Back',
-          onPressed: () => _goBack(context),
+    return Theme(
+      data: ThemeData.dark(useMaterial3: true).copyWith(
+        scaffoldBackgroundColor: const Color(0xFF071524),
+        cardColor: const Color(0xEE171C24),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFFFFD36A),
+          secondary: Color(0xFFF13A37),
+          surface: Color(0xEE171C24),
         ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white70),
       ),
-      body: Stack(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              image: DecorationImage(
-                image: const AssetImage('assets/image/background.png'),
-                fit: BoxFit.cover,
-                colorFilter: ColorFilter.mode(
-                  Color.fromARGB((255 * 0.3).round(), 0, 0, 0),
-                  BlendMode.darken,
+      child: Builder(
+        builder:
+            (context) => Scaffold(
+              extendBodyBehindAppBar: true,
+              appBar: AppBar(
+                title: Text(
+                  Localizations.localeOf(context).languageCode == 'es'
+                      ? 'Configuracion de apuntes'
+                      : 'Note Settings',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
+                centerTitle: true,
+                automaticallyImplyLeading: false,
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  tooltip:
+                      Localizations.localeOf(context).languageCode == 'es'
+                          ? 'Volver'
+                          : 'Back',
+                  onPressed: () => _goBack(context),
+                ),
+                backgroundColor: const Color(0xFF720B09),
+                foregroundColor: Colors.white,
+                elevation: 0,
               ),
-            ),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0x66000000)
-                      : const Color(0x33FFFFFF),
-                  Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0xAA000000)
-                      : const Color(0x66FFFFFF),
-                ],
-              ),
-            ),
-          ),
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.start,
+              body: Stack(
                 children: [
-                  const SizedBox(height: 8),
-                  Card(
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 0,
-                    ),
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0,
-                        vertical: 8.0,
+                  Container(
+                    decoration: BoxDecoration(
+                      image: DecorationImage(
+                        image: const AssetImage('assets/image/background.png'),
+                        fit: BoxFit.cover,
+                        colorFilter: ColorFilter.mode(
+                          Color.fromARGB((255 * 0.3).round(), 0, 0, 0),
+                          BlendMode.darken,
+                        ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.language,
-                            color: Theme.of(context).iconTheme.color,
-                          ),
-                          const SizedBox(width: 16),
-                          Text(
-                            appLocalizations.language,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const Spacer(),
-                          Theme(
-                            data: Theme.of(context).copyWith(
-                              canvasColor: Theme.of(context).cardColor,
-                            ),
-                            child: SizedBox(
-                              width: 150,
-                              child: DropdownButton<Locale>(
-                                value: currentLocale,
-                                isExpanded: true,
-                                icon: Icon(
-                                  Icons.arrow_drop_down,
-                                  color: Theme.of(context).iconTheme.color,
-                                ),
-                                iconSize: 28,
-                                elevation: 8,
-                                style: Theme.of(context).textTheme.titleMedium,
-                                underline: Container(),
-                                onChanged: (Locale? newLocale) {
-                                  if (newLocale != null) {
-                                    localeNotifier.setLocale(newLocale);
-                                  }
-                                },
-                                //TODO: add more language
-                                items:
-                                    AppLocalizations.supportedLocales
-                                        .map<DropdownMenuItem<Locale>>((
-                                          Locale locale,
-                                        ) {
-                                          String languageName;
-                                          switch (locale.languageCode) {
-                                            case 'en':
-                                              languageName = 'English';
-                                              break;
-                                            case 'es':
-                                              languageName = 'Español';
-                                              break;
-                                            case 'pt':
-                                              languageName = 'Português';
-                                              break;
-                                            case 'it':
-                                              languageName = 'Italiano';
-                                              break;
-                                            case 'fr':
-                                              languageName = 'Français';
-                                              break;
-                                            case 'zh':
-                                              languageName = '中文';
-                                              break;
-                                            case 'hi':
-                                              languageName = 'हिन्दी';
-                                              break;
-                                            case 'ar':
-                                              languageName = 'العربية';
-                                              break;
-                                            case 'bn':
-                                              languageName = 'বাংলা';
-                                              break;
-                                            case 'ru':
-                                              languageName = 'Русский';
-                                              break;
-                                            case 'ur':
-                                              languageName = 'اردو';
-                                              break;
-                                            default:
-                                              languageName = 'Unknown';
-                                          }
-                                          return DropdownMenuItem<Locale>(
-                                            value: locale,
-                                            child: Text(
-                                              languageName,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          );
-                                        })
-                                        .toList(),
-                              ),
-                            ),
-                          ),
+                    ),
+                  ),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0xFF720B09),
+                          Color(0xFF171C24),
+                          Color(0xFF071524),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Card(
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 0,
-                    ),
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0,
-                        vertical: 8.0,
-                      ),
-                      child: Row(
+                  SafeArea(
+                    bottom: false,
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.brightness_6,
-                            color: Theme.of(context).iconTheme.color,
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Text(
-                              appLocalizations.theme,
-                              style: Theme.of(context).textTheme.titleMedium,
-                              overflow: TextOverflow.ellipsis,
+                          const SizedBox(height: 8),
+                          Card(
+                            margin: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 0,
                             ),
-                          ),
-                          Theme(
-                            data: Theme.of(context).copyWith(
-                              canvasColor: Theme.of(context).cardColor,
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            child: SizedBox(
-                              width: 150,
-                              child: DropdownButton<ThemeMode>(
-                                value: themeNotifier.themeMode,
-                                isExpanded: true,
-                                icon: Icon(
-                                  Icons.arrow_drop_down,
-                                  color: Theme.of(context).iconTheme.color,
-                                ),
-                                iconSize: 28,
-                                elevation: 8,
-                                style: Theme.of(context).textTheme.titleMedium,
-                                underline: Container(),
-                                onChanged: (ThemeMode? newThemeMode) {
-                                  if (newThemeMode != null) {
-                                    themeNotifier.setThemeMode(newThemeMode);
-                                  }
-                                },
-                                items: <DropdownMenuItem<ThemeMode>>[
-                                  DropdownMenuItem(
-                                    value: ThemeMode.light,
-                                    child: Text(
-                                      appLocalizations.lightTheme,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                                vertical: 8.0,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.language,
+                                    color: Theme.of(context).iconTheme.color,
                                   ),
-                                  DropdownMenuItem(
-                                    value: ThemeMode.dark,
-                                    child: Text(
-                                      appLocalizations.darkTheme,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                                  const SizedBox(width: 16),
+                                  Text(
+                                    appLocalizations.language,
+                                    style:
+                                        Theme.of(context).textTheme.titleMedium,
                                   ),
-                                  DropdownMenuItem(
-                                    value: ThemeMode.system,
-                                    child: Text(
-                                      appLocalizations.systemTheme,
-                                      overflow: TextOverflow.ellipsis,
+                                  const Spacer(),
+                                  Theme(
+                                    data: Theme.of(context).copyWith(
+                                      canvasColor: Theme.of(context).cardColor,
+                                    ),
+                                    child: SizedBox(
+                                      width: 150,
+                                      child: DropdownButton<Locale>(
+                                        value: currentLocale,
+                                        isExpanded: true,
+                                        icon: Icon(
+                                          Icons.arrow_drop_down,
+                                          color:
+                                              Theme.of(context).iconTheme.color,
+                                        ),
+                                        iconSize: 28,
+                                        elevation: 8,
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                        underline: Container(),
+                                        onChanged: (Locale? newLocale) {
+                                          if (newLocale != null) {
+                                            localeNotifier.setLocale(newLocale);
+                                          }
+                                        },
+                                        //TODO: add more language
+                                        items:
+                                            AppLocalizations.supportedLocales
+                                                .map<DropdownMenuItem<Locale>>((
+                                                  Locale locale,
+                                                ) {
+                                                  String languageName;
+                                                  switch (locale.languageCode) {
+                                                    case 'en':
+                                                      languageName = 'English';
+                                                      break;
+                                                    case 'es':
+                                                      languageName = 'Español';
+                                                      break;
+                                                    case 'pt':
+                                                      languageName =
+                                                          'Português';
+                                                      break;
+                                                    case 'it':
+                                                      languageName = 'Italiano';
+                                                      break;
+                                                    case 'fr':
+                                                      languageName = 'Français';
+                                                      break;
+                                                    case 'zh':
+                                                      languageName = '中文';
+                                                      break;
+                                                    case 'hi':
+                                                      languageName = 'हिन्दी';
+                                                      break;
+                                                    case 'ar':
+                                                      languageName = 'العربية';
+                                                      break;
+                                                    case 'bn':
+                                                      languageName = 'বাংলা';
+                                                      break;
+                                                    case 'ru':
+                                                      languageName = 'Русский';
+                                                      break;
+                                                    case 'ur':
+                                                      languageName = 'اردو';
+                                                      break;
+                                                    default:
+                                                      languageName = 'Unknown';
+                                                  }
+                                                  return DropdownMenuItem<
+                                                    Locale
+                                                  >(
+                                                    value: locale,
+                                                    child: Text(
+                                                      languageName,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  );
+                                                })
+                                                .toList(),
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Card(
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 0,
-                    ),
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0,
-                        vertical: 8.0,
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.score,
-                                color: Theme.of(context).iconTheme.color,
+                          const SizedBox(height: 10),
+                          Card(
+                            margin: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 0,
+                            ),
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                                vertical: 8.0,
                               ),
-                              const SizedBox(width: 16),
-                              Text(
-                                '${appLocalizations.maxScoreSetting}: ${gameSettingsNotifier.maxScore}',
-                                style: Theme.of(context).textTheme.titleMedium,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.brightness_6,
+                                    color: Theme.of(context).iconTheme.color,
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Text(
+                                      appLocalizations.theme,
+                                      style:
+                                          Theme.of(
+                                            context,
+                                          ).textTheme.titleMedium,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Theme(
+                                    data: Theme.of(context).copyWith(
+                                      canvasColor: Theme.of(context).cardColor,
+                                    ),
+                                    child: SizedBox(
+                                      width: 150,
+                                      child: DropdownButton<ThemeMode>(
+                                        value: themeNotifier.themeMode,
+                                        isExpanded: true,
+                                        icon: Icon(
+                                          Icons.arrow_drop_down,
+                                          color:
+                                              Theme.of(context).iconTheme.color,
+                                        ),
+                                        iconSize: 28,
+                                        elevation: 8,
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                        underline: Container(),
+                                        onChanged: (ThemeMode? newThemeMode) {
+                                          if (newThemeMode != null) {
+                                            themeNotifier.setThemeMode(
+                                              newThemeMode,
+                                            );
+                                          }
+                                        },
+                                        items: <DropdownMenuItem<ThemeMode>>[
+                                          DropdownMenuItem(
+                                            value: ThemeMode.light,
+                                            child: Text(
+                                              appLocalizations.lightTheme,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: ThemeMode.dark,
+                                            child: Text(
+                                              appLocalizations.darkTheme,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: ThemeMode.system,
+                                            child: Text(
+                                              appLocalizations.systemTheme,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const Spacer(),
-                            ],
+                            ),
                           ),
-                          Slider(
-                            value: gameSettingsNotifier.maxScore.toDouble(),
-                            min: 100,
-                            max: 500,
-                            divisions: 4,
-                            label: gameSettingsNotifier.maxScore.toString(),
-                            onChanged: (double value) {
-                              gameSettingsNotifier.setMaxScore(value.round());
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Card(
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 0,
-                    ),
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0,
-                        vertical: 8.0,
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.star_half,
-                                color: Theme.of(context).iconTheme.color,
+                          const SizedBox(height: 10),
+                          Card(
+                            margin: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 0,
+                            ),
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                                vertical: 8.0,
                               ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Text(
-                                  '${appLocalizations.defaultBonusSetting}: ${gameSettingsNotifier.defaultBonus}',
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium,
-                                  overflow: TextOverflow.ellipsis,
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.score,
+                                        color:
+                                            Theme.of(context).iconTheme.color,
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        '${appLocalizations.maxScoreSetting}: ${gameSettingsNotifier.maxScore}',
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                      ),
+                                      const Spacer(),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value:
+                                        gameSettingsNotifier.maxScore
+                                            .toDouble(),
+                                    min: 100,
+                                    max: 500,
+                                    divisions: 4,
+                                    label:
+                                        gameSettingsNotifier.maxScore
+                                            .toString(),
+                                    onChanged: (double value) {
+                                      gameSettingsNotifier.setMaxScore(
+                                        value.round(),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Card(
+                            margin: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 0,
+                            ),
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                                vertical: 8.0,
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.star_half,
+                                        color:
+                                            Theme.of(context).iconTheme.color,
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Text(
+                                          '${appLocalizations.defaultBonusSetting}: ${gameSettingsNotifier.defaultBonus}',
+                                          style:
+                                              Theme.of(
+                                                context,
+                                              ).textTheme.titleMedium,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value:
+                                        gameSettingsNotifier.defaultBonus
+                                            .toDouble(),
+                                    min: 0,
+                                    max: 30,
+                                    divisions: 3,
+                                    label:
+                                        gameSettingsNotifier.defaultBonus
+                                            .toString(),
+                                    onChanged: (double value) {
+                                      gameSettingsNotifier.setDefaultBonus(
+                                        value.round(),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Card(
+                            margin: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 0,
+                            ),
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                                vertical: 8.0,
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.format_size,
+                                        color:
+                                            Theme.of(context).iconTheme.color,
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        '${appLocalizations.fontSizeSetting}: ${fontSizeNotifier.fontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.fontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont)}',
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                      ),
+                                      const Spacer(),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value: fontSizeNotifier.fontSizeScale,
+                                    min: 0.8,
+                                    max: 1.2,
+                                    divisions: 2,
+                                    label:
+                                        fontSizeNotifier.fontSizeScale == 0.8
+                                            ? appLocalizations.smallFont
+                                            : (fontSizeNotifier.fontSizeScale ==
+                                                    1.0
+                                                ? appLocalizations.mediumFont
+                                                : appLocalizations.largeFont),
+                                    onChanged: (double value) {
+                                      fontSizeNotifier.setFontSizeScale(value);
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Card(
+                            margin: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 0,
+                            ),
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                                vertical: 8.0,
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.score,
+                                        color:
+                                            Theme.of(context).iconTheme.color,
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        '${appLocalizations.scoreSizeSetting}: ${fontSizeNotifier.scoreFontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.scoreFontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont)}',
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.titleMedium,
+                                      ),
+                                      const Spacer(),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value: fontSizeNotifier.scoreFontSizeScale,
+                                    min: 0.8,
+                                    max: 1.6,
+                                    divisions: 4,
+                                    label:
+                                        fontSizeNotifier.scoreFontSizeScale ==
+                                                0.8
+                                            ? appLocalizations.smallFont
+                                            : (fontSizeNotifier
+                                                        .scoreFontSizeScale ==
+                                                    1.0
+                                                ? appLocalizations.mediumFont
+                                                : appLocalizations.largeFont),
+                                    onChanged: (double value) {
+                                      fontSizeNotifier.setScoreFontSizeScale(
+                                        value,
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Builder(
+                            builder: (shareContext) {
+                              return ListTile(
+                                leading: Icon(
+                                  Icons.share_rounded,
+                                  color: Theme.of(shareContext).iconTheme.color,
                                 ),
-                              ),
-                            ],
-                          ),
-                          Slider(
-                            value: gameSettingsNotifier.defaultBonus.toDouble(),
-                            min: 0,
-                            max: 30,
-                            divisions: 3,
-                            label: gameSettingsNotifier.defaultBonus.toString(),
-                            onChanged: (double value) {
-                              gameSettingsNotifier.setDefaultBonus(
-                                value.round(),
+                                title: Text(appLocalizations.shareAppTitle),
+                                subtitle: Text(
+                                  appLocalizations.shareAppSubtitle,
+                                ),
+                                onTap: () async {
+                                  final String message = _platformShareMessage(
+                                    currentLocale.languageCode,
+                                  );
+                                  final renderBox =
+                                      shareContext.findRenderObject()
+                                          as RenderBox?;
+                                  try {
+                                    await Share.share(
+                                      message,
+                                      subject: 'Kapi Note',
+                                      sharePositionOrigin:
+                                          renderBox != null
+                                              ? renderBox.localToGlobal(
+                                                    Offset.zero,
+                                                  ) &
+                                                  renderBox.size
+                                              : null,
+                                    );
+                                  } catch (e) {
+                                    debugPrint('Share failed: $e');
+                                  }
+                                },
                               );
                             },
                           ),
+                          const SizedBox(height: 18),
+                          AnchoredAdaptiveBannerAd(adUnitId: _adUnitId),
+                          const SizedBox(height: 8),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Card(
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 0,
-                    ),
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0,
-                        vertical: 8.0,
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.format_size,
-                                color: Theme.of(context).iconTheme.color,
-                              ),
-                              const SizedBox(width: 16),
-                              Text(
-                                '${appLocalizations.fontSizeSetting}: ${fontSizeNotifier.fontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.fontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont)}',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const Spacer(),
-                            ],
-                          ),
-                          Slider(
-                            value: fontSizeNotifier.fontSizeScale,
-                            min: 0.8,
-                            max: 1.2,
-                            divisions: 2,
-                            label:
-                                fontSizeNotifier.fontSizeScale == 0.8
-                                    ? appLocalizations.smallFont
-                                    : (fontSizeNotifier.fontSizeScale == 1.0
-                                        ? appLocalizations.mediumFont
-                                        : appLocalizations.largeFont),
-                            onChanged: (double value) {
-                              fontSizeNotifier.setFontSizeScale(value);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Card(
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 0,
-                    ),
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0,
-                        vertical: 8.0,
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.score,
-                                color: Theme.of(context).iconTheme.color,
-                              ),
-                              const SizedBox(width: 16),
-                              Text(
-                                '${appLocalizations.scoreSizeSetting}: ${fontSizeNotifier.scoreFontSizeScale == 0.8 ? appLocalizations.smallFont : (fontSizeNotifier.scoreFontSizeScale == 1.0 ? appLocalizations.mediumFont : appLocalizations.largeFont)}',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const Spacer(),
-                            ],
-                          ),
-                          Slider(
-                            value: fontSizeNotifier.scoreFontSizeScale,
-                            min: 0.8,
-                            max: 1.6,
-                            divisions: 4,
-                            label:
-                                fontSizeNotifier.scoreFontSizeScale == 0.8
-                                    ? appLocalizations.smallFont
-                                    : (fontSizeNotifier.scoreFontSizeScale ==
-                                            1.0
-                                        ? appLocalizations.mediumFont
-                                        : appLocalizations.largeFont),
-                            onChanged: (double value) {
-                              fontSizeNotifier.setScoreFontSizeScale(value);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Builder(
-                    builder: (shareContext) {
-                      return ListTile(
-                        leading: Icon(
-                          Icons.share_rounded,
-                          color: Theme.of(shareContext).iconTheme.color,
-                        ),
-                        title: Text(appLocalizations.shareAppTitle),
-                        subtitle: Text(appLocalizations.shareAppSubtitle),
-                        onTap: () async {
-                          final String message = _platformShareMessage(
-                            currentLocale.languageCode,
-                          );
-                          final renderBox =
-                              shareContext.findRenderObject() as RenderBox?;
-                          try {
-                            await Share.share(
-                              message,
-                              subject: 'Kapi Note',
-                              sharePositionOrigin:
-                                  renderBox != null
-                                      ? renderBox.localToGlobal(Offset.zero) &
-                                          renderBox.size
-                                      : null,
-                            );
-                          } catch (e) {
-                            debugPrint('Share failed: $e');
-                          }
-                        },
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  ListTile(
-                    leading: Icon(
-                      Icons.manage_accounts_rounded,
-                      color: Theme.of(context).iconTheme.color,
-                    ),
-                    title: Text(
-                      currentLocale.languageCode == 'es'
-                          ? 'Administrar o cancelar suscripción'
-                          : 'Manage or cancel subscription',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    subtitle: Text(
-                      currentLocale.languageCode == 'es'
-                          ? 'Abre ${_storeName()} para cambiar o cancelar Pro.'
-                          : 'Open ${_storeName()} to change or cancel Pro.',
-                    ),
-                    onTap: () async {
-                      final opened =
-                          await SubscriptionManagementService.openSubscriptionSettings(
-                            productId: premiumNotifier.activeProductId,
-                          );
-                      if (!context.mounted || opened) return;
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            currentLocale.languageCode == 'es'
-                                ? 'No pudimos abrir la página de suscripciones. Ábrela desde ${_storeName()}.'
-                                : 'We could not open subscription settings. Open it from ${_storeName()}.',
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  ListTile(
-                    leading: Icon(
-                      Icons.privacy_tip_rounded,
-                      color: Theme.of(context).iconTheme.color,
-                    ),
-                    title: Text(
-                      'Terms & Privacy',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    subtitle: const Text(
-                      'View Terms & Conditions and Privacy Policy',
-                    ),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AboutScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  ListTile(
-                    leading: Icon(
-                      Icons.info,
-                      color: Theme.of(context).iconTheme.color,
-                    ),
-                    title: Text(
-                      appLocalizations.about,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AboutScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  AnchoredAdaptiveBannerAd(adUnitId: _adUnitId),
-                  const SizedBox(height: 12),
-                  const AppFooter(),
-                  const SizedBox(height: 8),
                 ],
               ),
             ),
-          ),
-        ],
       ),
     );
   }
@@ -611,12 +605,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
     return const Locale('es');
-  }
-
-  String _storeName() {
-    return defaultTargetPlatform == TargetPlatform.iOS
-        ? 'App Store'
-        : 'Google Play';
   }
 
   void _goBack(BuildContext context) {

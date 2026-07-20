@@ -1,6 +1,7 @@
 // lib/screens/game_screen.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:dominoes_note2025/screens/team_name_notifier.dart';
 import 'package:flutter/material.dart';
@@ -14,8 +15,9 @@ import '../game_settings_notifier.dart'; // Import game settings notifier
 import '../font_size_notifier.dart';
 import '../l10n/app_localizations.dart';
 import '../services/analytics_service.dart';
+import '../constants/audio_assets.dart';
+import '../services/audio_manager.dart';
 import '../widgets/anchored_adaptive_banner_ad.dart';
-import '../widgets/app_version_label.dart';
 import 'admob_variable.dart';
 import 'fireworks_screen.dart'; // I// Import font size notifier
 
@@ -33,6 +35,12 @@ class _GameScreenState extends State<GameScreen>
   List<int>? _lastAddedScores;
   late final AnimationController _gameButtonPulseController;
 
+  static const Color _notesNavy = Color(0xFF071421);
+  static const Color _notesPanel = Color(0xFF10243A);
+  static const Color _notesGold = Color(0xFFF2C65A);
+  static const Color _notesRed = Color(0xFFEF3E38);
+  static const Color _notesBlue = Color(0xFF2F8EEB);
+
   // TODO: Replace this test ad unit ID with your own banner ad unit ID.
   final String _adUnitId =
       (defaultTargetPlatform ==
@@ -48,6 +56,7 @@ class _GameScreenState extends State<GameScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1050),
     )..repeat(reverse: true);
+    unawaited(AudioManager.instance.stopAll());
     _loadScores();
   }
 
@@ -317,7 +326,7 @@ class _GameScreenState extends State<GameScreen>
             maxScore: maxScore,
           ),
         );
-        Navigator.push(
+        final resetNotes = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
             settings: const RouteSettings(name: '/fireworks'),
@@ -325,13 +334,43 @@ class _GameScreenState extends State<GameScreen>
                 (context) => FireworksScreen(winningTeamName: winningTeamName),
           ),
         );
+        if (resetNotes == true && mounted) {
+          _resetGame();
+        }
       } else {
         _undoLastAdded();
       }
     }
   }
 
-  // Reset game scores (called from AppBar button now)
+  Future<void> _confirmResetGame() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Reset all scores?'),
+            content: const Text(
+              'This will remove every score for both teams and cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Reset'),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed == true && mounted) {
+      _resetGame();
+    }
+  }
+
+  // Reset game scores after an explicit confirmation from the AppBar button.
   void _resetGame() {
     setState(() {
       _teamAScores.clear();
@@ -398,29 +437,54 @@ class _GameScreenState extends State<GameScreen>
     super.dispose();
   }
 
-  Widget _buildGameReturnButton(bool openedFromDominoGame) {
-    Widget button = FilledButton.icon(
-      onPressed: () {
-        if (openedFromDominoGame && Navigator.canPop(context)) {
-          Navigator.pop(context);
-          return;
-        }
-        Navigator.pushNamed(context, '/start-game');
-      },
-      icon: const Icon(Icons.sports_esports_rounded, size: 18),
-      label: Text(
-        Localizations.localeOf(context).languageCode == 'es' ? 'Juego' : 'Game',
+  Widget _buildGameReturnButton(
+    bool openedFromDominoGame, {
+    bool compact = false,
+  }) {
+    void openGame() {
+      if (openedFromDominoGame && Navigator.canPop(context)) {
+        unawaited(AudioManager.instance.playMusic(AudioAssets.gameplayLoop));
+        Navigator.pop(context);
+        return;
+      }
+      Navigator.pushNamed(context, '/start-game');
+    }
+
+    final style = FilledButton.styleFrom(
+      backgroundColor: const Color(0xFFE53935),
+      foregroundColor: Colors.white,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 11 : 16,
+        vertical: compact ? 8 : 9,
       ),
-      style: FilledButton.styleFrom(
-        backgroundColor: const Color(0xFFE53935),
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      ),
+      minimumSize: Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     );
+    final Widget button =
+        compact
+            ? Tooltip(
+              message:
+                  Localizations.localeOf(context).languageCode == 'es'
+                      ? 'Volver al juego'
+                      : 'Return to game',
+              child: FilledButton(
+                onPressed: openGame,
+                style: style,
+                child: const Icon(Icons.sports_esports_rounded, size: 20),
+              ),
+            )
+            : FilledButton.icon(
+              onPressed: openGame,
+              icon: const Icon(Icons.sports_esports_rounded, size: 18),
+              label: Text(
+                Localizations.localeOf(context).languageCode == 'es'
+                    ? 'Juego'
+                    : 'Game',
+              ),
+              style: style,
+            );
 
     if (!openedFromDominoGame) return button;
 
@@ -458,14 +522,34 @@ class _GameScreenState extends State<GameScreen>
     final routeArguments = ModalRoute.of(context)?.settings.arguments;
     final openedFromDominoGame =
         routeArguments is Map && routeArguments['fromDominoGame'] == true;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final compactPhone = screenWidth < 380;
+    final contentPadding = compactPhone ? 8.0 : 16.0;
+    final teamGap = compactPhone ? 8.0 : 16.0;
 
     return Scaffold(
+      backgroundColor: _notesNavy,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Center(child: _buildGameReturnButton(openedFromDominoGame)),
+        title: Center(
+          child: _buildGameReturnButton(
+            openedFromDominoGame,
+            compact: compactPhone,
+          ),
+        ),
         centerTitle: true,
         automaticallyImplyLeading: false,
         backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        flexibleSpace: const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF970A0E), Color(0xFF43070B)],
+            ),
+          ),
+        ),
         elevation: 0,
         foregroundColor: Colors.white,
         leading:
@@ -479,16 +563,23 @@ class _GameScreenState extends State<GameScreen>
                 ),
         actions: [
           // Reset Game Button in AppBar
-          TextButton.icon(
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('Reset'),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              textStyle: const TextStyle(fontWeight: FontWeight.w900),
+          if (compactPhone)
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: 'Reset',
+              onPressed: _confirmResetGame,
+            )
+          else
+            TextButton.icon(
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Reset'),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                textStyle: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              onPressed: _confirmResetGame,
             ),
-            onPressed: _resetGame,
-          ),
           // Settings Button in AppBar
           IconButton(
             icon: const Icon(Icons.settings),
@@ -509,7 +600,7 @@ class _GameScreenState extends State<GameScreen>
                 image: const AssetImage('assets/image/background.png'),
                 fit: BoxFit.cover,
                 colorFilter: ColorFilter.mode(
-                  Color.fromARGB((255 * 0.3).round(), 0, 0, 0),
+                  const Color(0xDD071421),
                   BlendMode.darken,
                 ),
               ),
@@ -520,21 +611,15 @@ class _GameScreenState extends State<GameScreen>
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0x66000000)
-                      : const Color(0x33FFFFFF),
-                  Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0xAA000000)
-                      : const Color(0x66FFFFFF),
-                ],
+                colors: const [Color(0x440E263B), Color(0xCC071421)],
               ),
             ),
           ),
           // Game Content
           SafeArea(
+            bottom: false,
             child: Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: EdgeInsets.all(contentPadding),
               child: Column(
                 children: [
                   Expanded(
@@ -555,7 +640,7 @@ class _GameScreenState extends State<GameScreen>
                           ),
                         ),
                         // Spacer between columns
-                        const SizedBox(width: 16),
+                        SizedBox(width: teamGap),
                         // Team B Column
                         Expanded(
                           child: _buildTeamColumn(
@@ -574,10 +659,6 @@ class _GameScreenState extends State<GameScreen>
                     ),
                   ),
                   AnchoredAdaptiveBannerAd(adUnitId: _adUnitId),
-                  const AppVersionLabel(
-                    padding: EdgeInsets.only(top: 5, bottom: 3),
-                    fontSize: 10,
-                  ),
                 ],
               ),
             ),
@@ -603,7 +684,7 @@ class _GameScreenState extends State<GameScreen>
         (Theme.of(context).textTheme.headlineMedium?.fontSize ?? 20) *
         (isTablet ? 1.45 : 1.0);
     final screenWidth = MediaQuery.sizeOf(context).width;
-    final bool compactPhone = !isTablet && screenWidth < 480;
+    final bool compactPhone = !isTablet && screenWidth < 400;
     final double actionButtonSize =
         isTablet
             ? 72.0
@@ -628,13 +709,26 @@ class _GameScreenState extends State<GameScreen>
             : compactPhone
             ? 7.0
             : 12.0;
+    final Color accentColor =
+        identical(scores, _teamAScores) ? _notesBlue : _notesRed;
 
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(isTablet ? 16 : 10),
+    return Container(
+      key: ValueKey('notes-team-panel-$teamName'),
+      decoration: BoxDecoration(
+        color: _notesPanel.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(isTablet ? 20 : 16),
+        border: Border.all(
+          color: accentColor.withValues(alpha: 0.78),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.30),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      color: Theme.of(context).cardColor.withValues(alpha: 0.9),
       child: Padding(
         padding: EdgeInsets.all(cardPadding),
         child: Column(
@@ -648,13 +742,32 @@ class _GameScreenState extends State<GameScreen>
                     onNameChanged,
                     appLocalizations,
                   ),
-              child: Text(
-                teamName,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontSize: baseHeadline,
-                  fontWeight: FontWeight.w700,
-                ), // Adapt text color and size
+              child: Container(
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isTablet ? 14 : 8,
+                  vertical: isTablet ? 12 : 8,
+                ),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: accentColor.withValues(alpha: 0.70),
+                  ),
+                ),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    teamName,
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: Colors.white,
+                      fontSize: baseHeadline,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
             ),
             SizedBox(height: isTablet ? 16 : 10),
@@ -669,73 +782,94 @@ class _GameScreenState extends State<GameScreen>
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         fontSize: baseBody * scoreScale,
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontWeight: FontWeight.w700,
                       ), // Adapt text color and size
                     ),
                   );
                 },
               ),
             ),
-            const Divider(),
-            Text(
-              '${appLocalizations.total}: ${_getTotalScore(scores)}', // Localized "Total"
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontSize: baseHeadline * scoreScale,
-                fontWeight: FontWeight.w700,
-              ), // Adapt text color and size
+            Divider(color: accentColor.withValues(alpha: 0.60), thickness: 1.5),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                '${appLocalizations.total}: ${_getTotalScore(scores)}',
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: _notesGold,
+                  fontSize: baseHeadline * scoreScale,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
             SizedBox(height: isTablet ? 16 : 10),
             // Buttons for each team (remove, add, and bonus)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: actionButtonSize,
-                  height: actionButtonSize,
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final fittedSpacing = min(
+                  buttonSpacing,
+                  max(3.0, constraints.maxWidth * 0.04),
+                );
+                final fittedButtonSize = min(
+                  actionButtonSize,
+                  max(24.0, (constraints.maxWidth - fittedSpacing * 2) / 3),
+                );
+                final fittedIconSize = min(
+                  actionIconSize,
+                  fittedButtonSize * 0.58,
+                );
+                Widget actionButton({
+                  required String heroTag,
+                  required VoidCallback onPressed,
+                  required Color color,
+                  required IconData icon,
+                }) => SizedBox(
+                  width: fittedButtonSize,
+                  height: fittedButtonSize,
                   child: FloatingActionButton(
-                    heroTag:
-                        'remove_${teamName.replaceAll(' ', '')}Btn', // Unique tag
-                    onPressed: () => _removeLastScoreForTeam(scores),
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    child: Icon(Icons.remove, size: actionIconSize),
+                    heroTag: heroTag,
+                    onPressed: onPressed,
+                    backgroundColor: color,
+                    foregroundColor:
+                        color == _notesGold ? _notesNavy : Colors.white,
+                    elevation: 2,
+                    child: Icon(icon, size: fittedIconSize),
                   ),
-                ),
-                SizedBox(width: buttonSpacing),
-                SizedBox(
-                  width: actionButtonSize,
-                  height: actionButtonSize,
-                  child: FloatingActionButton(
-                    heroTag:
-                        'add_${teamName.replaceAll(' ', '')}Btn', // Unique tag for add button
-                    onPressed:
-                        () => _showManualPointsDialog(
-                          context,
-                          scores,
-                          appLocalizations,
-                        ), // Call dialog for add
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    child: Icon(Icons.add, size: actionIconSize),
-                  ),
-                ),
-                SizedBox(width: buttonSpacing),
-                SizedBox(
-                  width: actionButtonSize,
-                  height: actionButtonSize,
-                  child: FloatingActionButton(
-                    heroTag:
-                        'bonus_${teamName.replaceAll(' ', '')}Btn', // Unique tag
-                    onPressed:
-                        () => _addDefaultBonus(
-                          scores,
-                        ), // Directly add default bonus
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    child: Icon(Icons.star, size: actionIconSize), // Bonus icon
-                  ),
-                ),
-              ],
+                );
+
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    actionButton(
+                      heroTag: 'remove_${teamName.replaceAll(' ', '')}Btn',
+                      onPressed: () => _removeLastScoreForTeam(scores),
+                      color: _notesRed,
+                      icon: Icons.remove,
+                    ),
+                    SizedBox(width: fittedSpacing),
+                    actionButton(
+                      heroTag: 'add_${teamName.replaceAll(' ', '')}Btn',
+                      onPressed:
+                          () => _showManualPointsDialog(
+                            context,
+                            scores,
+                            appLocalizations,
+                          ),
+                      color: _notesBlue,
+                      icon: Icons.add,
+                    ),
+                    SizedBox(width: fittedSpacing),
+                    actionButton(
+                      heroTag: 'bonus_${teamName.replaceAll(' ', '')}Btn',
+                      onPressed: () => _addDefaultBonus(scores),
+                      color: _notesGold,
+                      icon: Icons.star,
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:provider/provider.dart';
 
 import '../premium_notifier.dart';
+import 'app_version_label.dart';
 
 class AnchoredAdaptiveBannerAd extends StatefulWidget {
   const AnchoredAdaptiveBannerAd({
@@ -27,6 +30,7 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
   int? _lastRequestedWidth;
   bool _isLoaded = false;
   bool _isLoading = false;
+  Timer? _retryTimer;
 
   @override
   void didChangeDependencies() {
@@ -88,6 +92,7 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
             _isLoaded = true;
             _isLoading = false;
           });
+          _retryTimer?.cancel();
         },
         onAdFailedToLoad: (ad, error) {
           ad.dispose();
@@ -107,6 +112,10 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
             _isLoaded = false;
             _isLoading = false;
           });
+          _retryTimer?.cancel();
+          _retryTimer = Timer(const Duration(seconds: 4), () {
+            if (mounted) _loadAdForCurrentWidth();
+          });
         },
       ),
     );
@@ -116,11 +125,13 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
 
   @override
   void dispose() {
+    _retryTimer?.cancel();
     _disposeCurrentAd();
     super.dispose();
   }
 
   void _disposeCurrentAd() {
+    _retryTimer?.cancel();
     _bannerAd?.dispose();
     _bannerAd = null;
     _adSize = null;
@@ -132,26 +143,40 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
   Widget build(BuildContext context) {
     final premiumNotifier = context.watch<PremiumNotifier>();
     if (premiumNotifier.isPremium) {
-      return const SizedBox.shrink();
+      return const AppVersionLabel(
+        padding: EdgeInsets.only(top: 2, bottom: 2),
+        fontSize: 10,
+      );
     }
 
     final bannerAd = _bannerAd;
     final adSize = _adSize;
 
-    if (!_isLoaded || bannerAd == null || adSize == null) {
-      return const SizedBox.shrink();
-    }
-
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Padding(
-        padding: widget.margin,
-        child: SizedBox(
-          width: adSize.width.toDouble(),
-          height: adSize.height.toDouble(),
-          child: AdWidget(ad: bannerAd),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: adSize?.height.toDouble() ?? 50,
+          child:
+              _isLoaded && bannerAd != null && adSize != null
+                  ? Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: widget.margin,
+                      child: SizedBox(
+                        width: adSize.width.toDouble(),
+                        height: adSize.height.toDouble(),
+                        child: AdWidget(ad: bannerAd),
+                      ),
+                    ),
+                  )
+                  : const SizedBox.expand(),
         ),
-      ),
+        const AppVersionLabel(
+          padding: EdgeInsets.only(top: 4, bottom: 2),
+          fontSize: 10,
+        ),
+      ],
     );
   }
 }

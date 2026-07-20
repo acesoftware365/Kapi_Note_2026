@@ -113,6 +113,7 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
           ),
           SafeArea(
+            bottom: false,
             child: Column(
               children: [
                 Expanded(
@@ -264,7 +265,8 @@ class _RankingScreenState extends State<RankingScreen> {
               return Expanded(
                 child: InkWell(
                   onTap: () {
-                    if (mode != _RankingMode.block) {
+                    if (mode != _RankingMode.block &&
+                        mode != _RankingMode.teams) {
                       final messenger = ScaffoldMessenger.of(context);
                       messenger
                         ..hideCurrentSnackBar()
@@ -844,6 +846,9 @@ class _RankingEntry {
       return 'All Fives';
     }
     if (clean.contains('draw') || clean.contains('pool')) return 'Draw';
+    if (clean.contains('teams') || clean.contains('2v2')) {
+      return 'Teams 2 vs 2';
+    }
     return 'Block';
   }
 
@@ -858,6 +863,7 @@ class _RankingEntry {
 
 enum _RankingMode {
   block('Block'),
+  teams('Teams 2 vs 2'),
   draw('Draw'),
   allFives('All Fives');
 
