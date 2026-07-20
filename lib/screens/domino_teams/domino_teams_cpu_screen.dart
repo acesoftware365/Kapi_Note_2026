@@ -3079,7 +3079,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
             ),
           ),
           const Positioned.fill(
-            child: KapiCenterpieceOverlay(maxFraction: .34, opacity: .28),
+            child: KapiCenterpieceOverlay(maxFraction: .44, opacity: .30),
           ),
           Padding(
             padding: const EdgeInsets.all(8),

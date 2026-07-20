@@ -1206,6 +1206,15 @@ Plan tecnico pendiente para hacerlo real:
 - Las 70 pruebas automáticas fueron aprobadas y la compilación iOS para simulador finalizó correctamente.
 - Versión: `5.0.113+128`.
 
+## Kapi Shop moderno y centros de mesa ampliados (2026-07-20)
+
+- La tienda conserva el catálogo, precios, compras, propiedad y selección existentes; el cambio es exclusivamente de presentación e interacción.
+- Las categorías ahora se muestran como controles visuales grandes con iconos, usando rojo vino, navy y dorado para mantener el tema Kapi.
+- Toda la tarjeta del artículo es interactiva. Las etiquetas `EN USO`, `TUYO` y `NUEVO`, el borde dorado y el check permiten reconocer el estado sin depender únicamente del botón inferior.
+- Las vistas previas tienen más protagonismo y los botones continúan indicando claramente comprar, usar o equipado.
+- Los centros de mesa aumentaron de tamaño de forma adaptativa en Block y Teams 2 vs 2, conservando transparencia para no dificultar la lectura de las fichas.
+- Versión: `5.0.114+129`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

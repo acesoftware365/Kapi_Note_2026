@@ -9,8 +9,8 @@ import '../services/kapi_cosmetics_service.dart';
 class KapiCenterpieceOverlay extends StatelessWidget {
   const KapiCenterpieceOverlay({
     super.key,
-    this.maxFraction = .36,
-    this.opacity = .30,
+    this.maxFraction = .46,
+    this.opacity = .32,
   });
 
   final double maxFraction;
@@ -32,7 +32,7 @@ class KapiCenterpieceOverlay extends StatelessWidget {
             builder: (context, constraints) {
               final dimension =
                   (constraints.biggest.shortestSide * maxFraction)
-                      .clamp(82.0, 210.0)
+                      .clamp(108.0, 286.0)
                       .toDouble();
               return Center(
                 child: Opacity(

@@ -251,8 +251,25 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                   ),
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 14),
+                    Text(
+                      _isSpanish ? 'ELIGE TU ESTILO' : 'CHOOSE YOUR STYLE',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               SizedBox(
-                height: 48,
+                height: 66,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -335,12 +352,13 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
           borderRadius: BorderRadius.circular(14),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            constraints: const BoxConstraints(minWidth: 72),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
               gradient:
                   selected
                       ? const LinearGradient(
-                        colors: [Color(0xFF283847), Color(0xFF192633)],
+                        colors: [Color(0xFF861425), Color(0xFF3D0D19)],
                       )
                       : null,
               color: selected ? null : const Color(0xFF111D29),
@@ -360,19 +378,21 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                       ]
                       : null,
             ),
-            child: Row(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   icon,
-                  size: 17,
+                  size: 20,
                   color: selected ? _champagneLight : Colors.white60,
                 ),
-                const SizedBox(width: 7),
+                const SizedBox(height: 3),
                 Text(
                   label,
                   style: TextStyle(
                     color: selected ? _champagneLight : Colors.white70,
+                    fontSize: 11,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -398,7 +418,10 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
             : canBuy
             ? _teal
             : const Color(0xFF536170);
-    return Container(
+    final action = equipped ? null : () => _activateItem(store, item);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
@@ -407,186 +430,274 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
         ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: equipped ? _champagne : const Color(0xFF344657),
-          width: equipped ? 1.8 : 1,
+          color: equipped ? _champagneLight : const Color(0xFF344657),
+          width: equipped ? 2.2 : 1,
         ),
-        boxShadow: const [
-          BoxShadow(
+        boxShadow: [
+          const BoxShadow(
             color: Color(0x66000000),
             blurRadius: 12,
             offset: Offset(0, 6),
           ),
+          if (equipped)
+            const BoxShadow(
+              color: Color(0x55D6B56B),
+              blurRadius: 16,
+              spreadRadius: 1,
+            ),
         ],
       ),
-      padding: const EdgeInsets.all(9),
-      child: Column(
-        children: [
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [item.primary, previewDark],
-                ),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: item.secondary.withValues(alpha: .72),
-                  width: 1.5,
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x55000000),
-                    blurRadius: 9,
-                    offset: Offset(0, 4),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              alignment: Alignment.center,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (item.previewAsset != null)
-                    Padding(
-                      padding:
-                          item.type == KapiCosmeticType.centerpiece
-                              ? const EdgeInsets.all(10)
-                              : EdgeInsets.zero,
-                      child: Image.asset(
-                        item.previewAsset!,
-                        fit:
-                            item.type == KapiCosmeticType.centerpiece
-                                ? BoxFit.contain
-                                : BoxFit.cover,
-                        filterQuality: FilterQuality.high,
-                        errorBuilder: (_, _, _) => _emojiPreview(item),
-                      ),
-                    )
-                  else if (item.type == KapiCosmeticType.dice)
-                    _dicePreview(item)
-                  else if (item.type == KapiCosmeticType.handTray)
-                    _handTrayPreview(item)
-                  else
-                    _emojiPreview(item),
-                  const DecoratedBox(
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: action,
+          splashColor: _champagne.withValues(alpha: .18),
+          highlightColor: Colors.white.withValues(alpha: .04),
+          child: Padding(
+            padding: const EdgeInsets.all(9),
+            child: Column(
+              children: [
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Color(0x33000000)],
-                        stops: [0.58, 1],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [item.primary, previewDark],
                       ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: item.secondary.withValues(alpha: .72),
+                        width: 1.5,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x55000000),
+                          blurRadius: 9,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
                     ),
-                  ),
-                  if (item.exclusive)
-                    Positioned(
-                      top: 5,
-                      right: 5,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF541625),
-                          borderRadius: BorderRadius.circular(7),
-                          border: Border.all(color: _champagne),
-                        ),
-                        child: Text(
-                          _isSpanish ? 'EXCLUSIVO' : 'EXCLUSIVE',
-                          style: const TextStyle(
-                            color: _champagneLight,
-                            fontSize: 7,
-                            fontWeight: FontWeight.w900,
+                    clipBehavior: Clip.antiAlias,
+                    alignment: Alignment.center,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (item.previewAsset != null)
+                          Padding(
+                            padding:
+                                item.type == KapiCosmeticType.centerpiece
+                                    ? const EdgeInsets.all(10)
+                                    : EdgeInsets.zero,
+                            child: Image.asset(
+                              item.previewAsset!,
+                              fit:
+                                  item.type == KapiCosmeticType.centerpiece
+                                      ? BoxFit.contain
+                                      : BoxFit.cover,
+                              filterQuality: FilterQuality.high,
+                              errorBuilder: (_, _, _) => _emojiPreview(item),
+                            ),
+                          )
+                        else if (item.type == KapiCosmeticType.dice)
+                          _dicePreview(item)
+                        else if (item.type == KapiCosmeticType.handTray)
+                          _handTrayPreview(item)
+                        else
+                          _emojiPreview(item),
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Color(0x33000000)],
+                              stops: [0.58, 1],
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 7),
-          Text(
-            item.nameFor(Localizations.localeOf(context)),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 6),
-          SizedBox(
-            width: double.infinity,
-            height: 34,
-            child: OutlinedButton(
-              onPressed:
-                  equipped
-                      ? null
-                      : () async {
-                        if (!owned) {
-                          final bought = await store.purchase(item);
-                          if (!bought || !mounted) {
-                            if (mounted) _notEnough();
-                            return;
-                          }
-                        }
-                        await store.equip(item);
-                      },
-              style: OutlinedButton.styleFrom(
-                backgroundColor:
-                    equipped
-                        ? const Color(0xFF262116)
-                        : owned
-                        ? const Color(0xFF122B43)
-                        : canBuy
-                        ? const Color(0xFF102E2B)
-                        : const Color(0xFF19232D),
-                foregroundColor: equipped ? _champagneLight : Colors.white,
-                disabledBackgroundColor: const Color(0xFF262116),
-                disabledForegroundColor: _champagneLight,
-                side: BorderSide(color: actionColor, width: 1.2),
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(11),
-                ),
-              ),
-              child: FittedBox(
-                child:
-                    equipped || owned
-                        ? Text(
-                          equipped
-                              ? (_isSpanish ? 'Equipado' : 'Equipped')
-                              : (_isSpanish ? 'Usar' : 'Use'),
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        )
-                        : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '${item.price}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
+                        Positioned(
+                          left: 6,
+                          top: 6,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  equipped
+                                      ? const Color(0xFFE7C778)
+                                      : owned
+                                      ? const Color(0xDD184E72)
+                                      : const Color(0xCC08131E),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color:
+                                    equipped
+                                        ? _champagneLight
+                                        : Colors.white.withValues(alpha: .22),
                               ),
                             ),
-                            const SizedBox(width: 5),
-                            const Icon(
-                              Icons.monetization_on_rounded,
-                              color: Color(0xFFE6C66E),
-                              size: 17,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  equipped
+                                      ? Icons.check_circle_rounded
+                                      : owned
+                                      ? Icons.inventory_2_rounded
+                                      : Icons.lock_open_rounded,
+                                  color: equipped ? _ink : Colors.white,
+                                  size: 11,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  equipped
+                                      ? (_isSpanish ? 'EN USO' : 'ACTIVE')
+                                      : owned
+                                      ? (_isSpanish ? 'TUYO' : 'OWNED')
+                                      : (_isSpanish ? 'NUEVO' : 'NEW'),
+                                  style: TextStyle(
+                                    color: equipped ? _ink : Colors.white,
+                                    fontSize: 7,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: .4,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
-              ),
+                        if (item.exclusive)
+                          Positioned(
+                            top: 5,
+                            right: 5,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF541625),
+                                borderRadius: BorderRadius.circular(7),
+                                border: Border.all(color: _champagne),
+                              ),
+                              child: Text(
+                                _isSpanish ? 'EXCLUSIVO' : 'EXCLUSIVE',
+                                style: const TextStyle(
+                                  color: _champagneLight,
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.nameFor(Localizations.localeOf(context)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (equipped)
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        color: _champagneLight,
+                        size: 16,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  height: 34,
+                  child: OutlinedButton(
+                    onPressed: action,
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor:
+                          equipped
+                              ? const Color(0xFF262116)
+                              : owned
+                              ? const Color(0xFF122B43)
+                              : canBuy
+                              ? const Color(0xFF102E2B)
+                              : const Color(0xFF19232D),
+                      foregroundColor:
+                          equipped ? _champagneLight : Colors.white,
+                      disabledBackgroundColor: const Color(0xFF262116),
+                      disabledForegroundColor: _champagneLight,
+                      side: BorderSide(color: actionColor, width: 1.2),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                    ),
+                    child: FittedBox(
+                      child:
+                          equipped || owned
+                              ? Text(
+                                equipped
+                                    ? (_isSpanish ? 'Equipado' : 'Equipped')
+                                    : (_isSpanish ? 'Usar' : 'Use'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              )
+                              : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '${item.price}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  const Icon(
+                                    Icons.monetization_on_rounded,
+                                    color: Color(0xFFE6C66E),
+                                    size: 17,
+                                  ),
+                                ],
+                              ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  Future<void> _activateItem(
+    KapiCosmeticsService store,
+    KapiCosmeticItem item,
+  ) async {
+    if (!store.owns(item)) {
+      final bought = await store.purchase(item);
+      if (!bought || !mounted) {
+        if (mounted) _notEnough();
+        return;
+      }
+    }
+    await store.equip(item);
   }
 
   Widget _emojiPreview(KapiCosmeticItem item) {
