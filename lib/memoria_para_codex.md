@@ -1,5 +1,12 @@
 # Memoria para Codex
 
+## Teams Online inicia la búsqueda desde su tarjeta (2026-07-20)
+
+- En el lobby de Teams 2 vs 2, tocar `Buscar partida online` inicia inmediatamente el matchmaking.
+- Se eliminó el botón adicional `Find players`, porque obligaba a confirmar dos veces la misma decisión.
+- La búsqueda conserva su espera de hasta 30 segundos y completa los asientos vacíos con CPU.
+- Versión técnica: `5.0.110+125`.
+
 ## Teams 2 vs 2 sin selector duplicado (2026-07-20)
 
 - Al continuar con Teams 2 vs 2 ya no se abre el panel intermedio `Choose play mode` con `Play vs CPU` y `Online`.

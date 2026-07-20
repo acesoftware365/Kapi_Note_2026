@@ -69,6 +69,12 @@ Este registro fue reconstruido sin abrir el chat que provoca el cierre de Codex.
     - Conservar las opciones CPU y online dentro del lobby.
     - Estado: **recuperado e implementado** en `5.0.109+124`.
 
+12. **Iniciar matchmaking al tocar la opción online de Teams — recuperado por aclaración del usuario**
+    - La tarjeta `Buscar partida online` debe comenzar la búsqueda inmediatamente.
+    - No pedir después otro toque en `Find players`.
+    - Conservar la espera de 30 segundos y el llenado de asientos vacíos con CPU.
+    - Estado: **recuperado e implementado** en `5.0.110+125`.
+
 ## Verificación disponible
 
 - La versión actual es `5.0.108+123`.

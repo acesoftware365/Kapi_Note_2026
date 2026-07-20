@@ -367,47 +367,14 @@ class _DominoTeamsOnlineLobbyScreenState
         _modeCard(
           icon: Icons.public_rounded,
           color: const Color(0xFF1976D2),
-          title: 'Online',
+          title: _isSpanish ? 'Buscar partida online' : 'Find an online match',
           subtitle:
               _isSpanish
                   ? 'Busca hasta 30 segundos; el CPU completa los puestos.'
                   : 'Search for 30 seconds; CPU fills empty seats.',
-          selected: true,
+          onTap: _loadingProfile || _joining || _profile == null ? null : _join,
         ),
         const SizedBox(height: 20),
-        FilledButton.icon(
-          onPressed:
-              _loadingProfile || _joining || _profile == null ? null : _join,
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF1976D2),
-            foregroundColor: Colors.white,
-            minimumSize: const Size.fromHeight(58),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          icon:
-              _joining || _loadingProfile
-                  ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: Colors.white,
-                    ),
-                  )
-                  : const Icon(Icons.search_rounded),
-          label: Text(
-            _joining
-                ? (_isSpanish ? 'Entrando...' : 'Joining...')
-                : (_isSpanish ? 'Buscar jugadores' : 'Find players'),
-          ),
-        ),
-        const SizedBox(height: 10),
         OutlinedButton.icon(
           onPressed: _cancel,
           style: OutlinedButton.styleFrom(
