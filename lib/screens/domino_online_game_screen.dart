@@ -95,6 +95,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
   @override
   void initState() {
     super.initState();
+    KapiCosmeticsService.instance.addListener(_handleCosmeticsChanged);
     _celebrationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -116,6 +117,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
 
   @override
   void dispose() {
+    KapiCosmeticsService.instance.removeListener(_handleCosmeticsChanged);
     _rematchTimer?.cancel();
     _celebrationController.dispose();
     _sideChoicePulse.dispose();
@@ -126,6 +128,10 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     _onlineHandScrollController.dispose();
     unawaited(AudioManager.instance.stopMusic());
     super.dispose();
+  }
+
+  void _handleCosmeticsChanged() {
+    if (mounted) setState(() {});
   }
 
   @override

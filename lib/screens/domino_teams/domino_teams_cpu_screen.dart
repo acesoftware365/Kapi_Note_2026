@@ -163,6 +163,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   @override
   void initState() {
     super.initState();
+    KapiCosmeticsService.instance.addListener(_handleCosmeticsChanged);
     DominoDisplaySettings.playedTileScale.addListener(_handlePlayedTileScale);
     DominoDisplaySettings.handTileScale.addListener(_handleHandTileScale);
     _sideChoicePulse = AnimationController(
@@ -186,6 +187,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
 
   @override
   void dispose() {
+    KapiCosmeticsService.instance.removeListener(_handleCosmeticsChanged);
     DominoDisplaySettings.playedTileScale.removeListener(
       _handlePlayedTileScale,
     );
@@ -203,6 +205,10 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     _sideChoicePulse.dispose();
     unawaited(AudioManager.instance.stopMusic());
     super.dispose();
+  }
+
+  void _handleCosmeticsChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadPlayedTileScale() async {

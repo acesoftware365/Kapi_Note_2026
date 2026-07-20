@@ -1197,6 +1197,15 @@ Plan tecnico pendiente para hacerlo real:
 - Al rechazar una invitación de Block se libera la sala reservada para que ninguno de los jugadores quede bloqueado.
 - Versión: `5.0.112+127`.
 
+## Cosméticos inmediatos y prueba online en cuatro simuladores (2026-07-20)
+
+- Block CPU, Block online y Teams 2 vs 2 ahora escuchan directamente los cambios de Kapi Shop y redibujan la partida tan pronto se equipa un artículo; ya no es necesario jugar una ficha para ver el cambio.
+- Teams 2 vs 2 online se verificó simultáneamente en iPhone 16e, iPhone 16 Pro, iPhone 16 y iPhone 16 Plus. Los cuatro jugadores llenaron la misma sala y avanzaron correctamente hasta la segunda mano.
+- Block online se verificó simultáneamente en los mismos cuatro simuladores, formando dos partidas independientes que avanzaron correctamente hasta la segunda ronda.
+- Cada simulador mantuvo sus propios avatares, mesas, fichas, paneles y centros de mesa sin mezclar la selección visual de los demás jugadores.
+- Las 70 pruebas automáticas fueron aprobadas y la compilación iOS para simulador finalizó correctamente.
+- Versión: `5.0.113+128`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

@@ -91,6 +91,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
 
   @override
   void dispose() {
+    KapiCosmeticsService.instance.removeListener(_handleCosmeticsChanged);
     DominoDisplaySettings.playedTileScale.removeListener(
       _handlePlayedTileScale,
     );
@@ -109,6 +110,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   @override
   void initState() {
     super.initState();
+    KapiCosmeticsService.instance.addListener(_handleCosmeticsChanged);
     DominoDisplaySettings.playedTileScale.addListener(_handlePlayedTileScale);
     DominoDisplaySettings.handTileScale.addListener(_handleHandTileScale);
     _confettiController = AnimationController(
@@ -128,6 +130,10 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       unawaited(AudioManager.instance.playSfx(AudioAssets.gameStart));
       _startNewRound();
     });
+  }
+
+  void _handleCosmeticsChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
