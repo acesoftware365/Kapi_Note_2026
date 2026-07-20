@@ -303,6 +303,106 @@ class TeamsOnlineService {
   Stream<TeamsOnlineGame> watchGame(String gameId) =>
       _games.doc(gameId).snapshots().map(TeamsOnlineGame.fromSnapshot);
 
+  Future<String> createInviteLobby({
+    required DominoPlayerProfile profile,
+    required int points,
+  }) async {
+    final playerId = profile.publicId.toUpperCase();
+    final room = _games.doc();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final player = TeamsOnlinePlayer(
+      id: playerId,
+      initials: profile.initials,
+      countryCode: profile.countryCode,
+      avatarKey: profile.avatarKey,
+      points: points,
+      isCpu: false,
+      badgeKey:
+          KapiCosmeticsService.instance.equipped(KapiCosmeticType.flag).id,
+    );
+    await db.runTransaction((transaction) async {
+      transaction.set(room, {
+        'mode': 'teams2v2',
+        'status': 'waiting',
+        'invitationOnly': true,
+        'players': [player.toMap()],
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdAtMillis': now,
+        'deadlineAt': now + searchDuration.inMilliseconds,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      transaction.set(_queue.doc(playerId), {
+        'playerId': playerId,
+        'gameId': room.id,
+        'status': 'waiting',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+    return room.id;
+  }
+
+  Future<TeamsInviteJoinResult> joinInviteLobby({
+    required String gameId,
+    required DominoPlayerProfile profile,
+    required int points,
+  }) async {
+    final playerId = profile.publicId.toUpperCase();
+    final playerKey = TeamsOnlineRoster.identityKey(playerId);
+    final roomRef = _games.doc(gameId);
+    final player = TeamsOnlinePlayer(
+      id: playerId,
+      initials: profile.initials,
+      countryCode: profile.countryCode,
+      avatarKey: profile.avatarKey,
+      points: points,
+      isCpu: false,
+      badgeKey:
+          KapiCosmeticsService.instance.equipped(KapiCosmeticType.flag).id,
+    );
+    try {
+      return await db.runTransaction<TeamsInviteJoinResult>((
+        transaction,
+      ) async {
+        final room = await transaction.get(roomRef);
+        final data = room.data();
+        if (data == null) return TeamsInviteJoinResult.unavailable;
+        final players = List<dynamic>.from(data['players'] ?? const []);
+        final capacity = TeamsInviteCapacity.evaluate(
+          status: data['status'] as String? ?? '',
+          playerIds:
+              players
+                  .whereType<Map>()
+                  .map((entry) => entry['id'] as String? ?? '')
+                  .toList(),
+          joiningPlayerId: playerId,
+        );
+        if (capacity != TeamsInviteJoinResult.joined) return capacity;
+        final existingSeat = players.indexWhere(
+          (entry) =>
+              entry is Map &&
+              TeamsOnlineRoster.identityKey(entry['id'] as String? ?? '') ==
+                  playerKey,
+        );
+        if (existingSeat >= 0) return TeamsInviteJoinResult.joined;
+        if (players.length >= 4) return TeamsInviteJoinResult.roomFull;
+        players.add(player.toMap());
+        transaction.update(roomRef, {
+          'players': players,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        transaction.set(_queue.doc(playerId), {
+          'playerId': playerId,
+          'gameId': gameId,
+          'status': 'waiting',
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        return TeamsInviteJoinResult.joined;
+      });
+    } on FirebaseException {
+      return TeamsInviteJoinResult.unavailable;
+    }
+  }
+
   Future<String> joinQuickMatch({
     required DominoPlayerProfile profile,
     required int points,
@@ -970,6 +1070,30 @@ class TeamsOnlineService {
       'special': null,
       'blocked': true,
     };
+  }
+}
+
+enum TeamsInviteJoinResult { joined, roomFull, unavailable }
+
+class TeamsInviteCapacity {
+  const TeamsInviteCapacity._();
+
+  static TeamsInviteJoinResult evaluate({
+    required String status,
+    required List<String> playerIds,
+    required String joiningPlayerId,
+    int maximumPlayers = 4,
+  }) {
+    final joiningKey = TeamsOnlineRoster.identityKey(joiningPlayerId);
+    final alreadyJoined = playerIds.any(
+      (id) => TeamsOnlineRoster.identityKey(id) == joiningKey,
+    );
+    if (alreadyJoined) return TeamsInviteJoinResult.joined;
+    if (status != 'waiting') return TeamsInviteJoinResult.roomFull;
+    if (playerIds.length >= maximumPlayers) {
+      return TeamsInviteJoinResult.roomFull;
+    }
+    return TeamsInviteJoinResult.joined;
   }
 }
 

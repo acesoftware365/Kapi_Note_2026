@@ -79,4 +79,44 @@ void main() {
       expect(view[0], same(stored));
     });
   });
+
+  group('TeamsInviteCapacity', () {
+    test('allows several invited friends until the fourth seat is filled', () {
+      expect(
+        TeamsInviteCapacity.evaluate(
+          status: 'waiting',
+          playerIds: const ['A.US.AAAAA1', 'B.US.BBBBB2', 'C.US.CCCCC3'],
+          joiningPlayerId: 'D.US.DDDDD4',
+        ),
+        TeamsInviteJoinResult.joined,
+      );
+    });
+
+    test('reports room full to a late invited friend', () {
+      expect(
+        TeamsInviteCapacity.evaluate(
+          status: 'waiting',
+          playerIds: const [
+            'A.US.AAAAA1',
+            'B.US.BBBBB2',
+            'C.US.CCCCC3',
+            'D.US.DDDDD4',
+          ],
+          joiningPlayerId: 'E.US.EEEEE5',
+        ),
+        TeamsInviteJoinResult.roomFull,
+      );
+    });
+
+    test('allows an accepted player to resume the same room', () {
+      expect(
+        TeamsInviteCapacity.evaluate(
+          status: 'waiting',
+          playerIds: const ['A.US.AAAAA1'],
+          joiningPlayerId: 'A.DO.AAAAA1',
+        ),
+        TeamsInviteJoinResult.joined,
+      );
+    });
+  });
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -26,9 +28,16 @@ class SimpleLobbyFriend {
 }
 
 class SimpleFriendsScreen extends StatefulWidget {
-  const SimpleFriendsScreen({super.key, required this.profile});
+  const SimpleFriendsScreen({
+    super.key,
+    required this.profile,
+    this.multiSelect = false,
+    this.maxSelections = 12,
+  });
 
   final DominoPlayerProfile profile;
+  final bool multiSelect;
+  final int maxSelections;
 
   @override
   State<SimpleFriendsScreen> createState() => _SimpleFriendsScreenState();
@@ -37,6 +46,22 @@ class SimpleFriendsScreen extends StatefulWidget {
 class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
   bool _onlineExpanded = true;
   bool _offlineExpanded = true;
+  final Map<String, SimpleLobbyFriend> _selected = {};
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
 
   bool _isSpanish(BuildContext context) =>
       Localizations.localeOf(context).languageCode == 'es';
@@ -63,6 +88,29 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
           const SizedBox(width: 6),
         ],
       ),
+      bottomNavigationBar:
+          widget.multiSelect
+              ? SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: FilledButton.icon(
+                    onPressed:
+                        _selected.isEmpty
+                            ? null
+                            : () => Navigator.pop(
+                              context,
+                              _selected.values.toList(growable: false),
+                            ),
+                    icon: const Icon(Icons.send_rounded),
+                    label: Text(
+                      _isSpanish(context)
+                          ? 'Invitar (${_selected.length})'
+                          : 'Invite (${_selected.length})',
+                    ),
+                  ),
+                ),
+              )
+              : null,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -771,6 +819,10 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
         '${tier.label} · ${friend.points} pts',
         style: const TextStyle(color: Colors.white60),
       ),
+      onTap:
+          widget.multiSelect && enabled && !friend.example
+              ? () => _toggleSelection(friend)
+              : null,
       trailing:
           friend.example
               ? Icon(
@@ -778,15 +830,20 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
                 color: enabled ? const Color(0xFF45D483) : Colors.white38,
               )
               : enabled
-              ? FilledButton.icon(
-                onPressed: () => Navigator.pop(context, friend),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E88E5),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-                icon: const Icon(Icons.send_rounded, size: 18),
-                label: Text(_isSpanish(context) ? 'Invitar' : 'Invite'),
-              )
+              ? widget.multiSelect
+                  ? Checkbox(
+                    value: _selected.containsKey(friend.publicId),
+                    onChanged: (_) => _toggleSelection(friend),
+                  )
+                  : FilledButton.icon(
+                    onPressed: () => Navigator.pop(context, friend),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E88E5),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    icon: const Icon(Icons.send_rounded, size: 18),
+                    label: Text(_isSpanish(context) ? 'Invitar' : 'Invite'),
+                  )
               : Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -806,6 +863,22 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
                 ),
               ),
     );
+  }
+
+  void _toggleSelection(SimpleLobbyFriend friend) {
+    if (!friend.online || friend.example) return;
+    setState(() {
+      if (_selected.remove(friend.publicId) != null) return;
+      if (_selected.length >= widget.maxSelections) {
+        _showMessage(
+          _isSpanish(context)
+              ? 'Puedes invitar hasta ${widget.maxSelections} amigos a la vez.'
+              : 'You can invite up to ${widget.maxSelections} friends at once.',
+        );
+        return;
+      }
+      _selected[friend.publicId] = friend;
+    });
   }
 }
 

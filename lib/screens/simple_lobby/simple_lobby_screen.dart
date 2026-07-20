@@ -161,7 +161,11 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
         .snapshots()
         .listen((snapshot) {
           for (final doc in snapshot.docs) {
-            if (doc.data()['status'] == 'pending' && doc.id != _shownInviteId) {
+            final data = doc.data();
+            final gameType = data['gameType'] as String?;
+            if (data['status'] == 'pending' &&
+                (gameType == null || gameType == 'block') &&
+                doc.id != _shownInviteId) {
               _shownInviteId = doc.id;
               unawaited(_showIncomingInvite(doc));
               break;
@@ -789,6 +793,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
         guestInitials: initials,
       );
       await _db.collection('kapi_game_invites').add({
+        'gameType': 'block',
         'fromId': profile.publicId.toUpperCase(),
         'toId': playerId.toUpperCase(),
         'mode': 'block',

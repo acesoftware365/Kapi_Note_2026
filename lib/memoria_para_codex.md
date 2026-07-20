@@ -1,5 +1,15 @@
 # Memoria para Codex
 
+## Lista de amigos compartida e invitaciones múltiples (2026-07-20)
+
+- La misma lista persistente de amigos se reutiliza en Block y Teams 2 vs 2 y queda preparada para otros juegos mediante `gameType`.
+- La lista actualiza presencia cada 20 segundos y separa amigos online/offline usando el heartbeat de 25 segundos.
+- Teams 2 vs 2 permite marcar varios amigos online con checkboxes y enviarles invitaciones a la misma sala en una sola acción.
+- Los amigos aceptan mediante una invitación identificada como `teams2v2`; las invitaciones Block se identifican como `block` para que nunca se abran en el juego equivocado.
+- La entrada a una sala Teams se valida con transacción: se aceptan jugadores hasta cuatro puestos; quien acepte después recibe `La sala ya está llena` y su invitación queda como `roomFull`.
+- Si no se completan cuatro humanos dentro de 30 segundos, se conserva el comportamiento aprobado de llenar los puestos vacíos con CPU.
+- Versión técnica: `5.0.111+126`.
+
 ## Teams Online inicia la búsqueda desde su tarjeta (2026-07-20)
 
 - En el lobby de Teams 2 vs 2, tocar `Buscar partida online` inicia inmediatamente el matchmaking.
