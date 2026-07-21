@@ -1247,6 +1247,14 @@ Plan tecnico pendiente para hacerlo real:
 - El diálogo ahora conserva el texto sin depender de un controlador descartado durante la animación de cierre.
 - Versión: `5.0.118+133`.
 
+## Selector de rival y diálogo de invitación (2026-07-21)
+
+- El espacio del rival con el signo `+` en el lobby de Block ahora abre directamente la lista real de amigos.
+- Los amigos conectados pueden seleccionarse e invitarse; los desconectados permanecen visibles pero desactivados.
+- La entrada manual del ID conserva su función como alternativa y ahora usa el tema oscuro azul, dorado y verde de Kapi Note.
+- El diálogo manual ya no usa un controlador que pueda descartarse durante la animación de cierre.
+- Versión: `5.0.119+134`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

@@ -354,6 +354,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
               color: opponent?.color ?? const Color(0xFF21181B),
               borderColor:
                   opponent == null ? Colors.white24 : opponentTier.frameColor(),
+              onTap: opponent == null ? _openFriends : null,
             ),
           ),
         ],
@@ -661,32 +662,111 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   }
 
   Future<void> _inviteByCode() async {
-    final controller = TextEditingController();
+    var playerCode = '';
     final code = await showDialog<String>(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: Text(_isSpanish ? 'ID del jugador' : 'Player ID'),
-            content: TextField(
-              controller: controller,
-              autofocus: true,
-              textCapitalization: TextCapitalization.characters,
-              maxLength: 6,
-              decoration: const InputDecoration(hintText: 'TGHIDU'),
+            backgroundColor: const Color(0xFF101C29),
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(26),
+              side: const BorderSide(color: Color(0xFFFFD36B), width: 1.4),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+            title: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5AB7FF).withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFF5AB7FF)),
+                  ),
+                  child: const Icon(
+                    Icons.tag_rounded,
+                    color: Color(0xFF5AB7FF),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _isSpanish ? 'ID del jugador' : 'Player ID',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isSpanish
+                      ? 'Escribe el código de 6 caracteres de tu amigo.'
+                      : "Enter your friend's 6-character code.",
+                  style: const TextStyle(color: Colors.white70, height: 1.3),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.characters,
+                  maxLength: 6,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 3,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'A1B2C3',
+                    hintStyle: const TextStyle(color: Colors.white30),
+                    counterStyle: const TextStyle(color: Colors.white54),
+                    filled: true,
+                    fillColor: const Color(0xFF071524),
+                    prefixIcon: const Icon(
+                      Icons.tag_rounded,
+                      color: Color(0xFFFFD36B),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Colors.white24),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF5AB7FF),
+                        width: 1.8,
+                      ),
+                    ),
+                  ),
+                  onChanged: (value) => playerCode = value,
+                  onSubmitted: (value) => Navigator.pop(context, value),
+                ),
+              ],
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(foregroundColor: Colors.white70),
                 child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
               ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, controller.text),
-                child: Text(_isSpanish ? 'Invitar' : 'Invite'),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(context, playerCode),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF2EB872),
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: Text(_isSpanish ? 'Invitar' : 'Invite'),
               ),
             ],
           ),
     );
-    controller.dispose();
     if (code == null) return;
     final playerId = await _resolveCode(code);
     if (playerId == null) {
@@ -859,6 +939,7 @@ class _PlayerSlot extends StatelessWidget {
     required this.borderColor,
     this.avatarKey,
     this.avatarText,
+    this.onTap,
   });
 
   final IconData icon;
@@ -868,64 +949,75 @@ class _PlayerSlot extends StatelessWidget {
   final Color borderColor;
   final String? avatarKey;
   final String? avatarText;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: 62,
-          height: 62,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: borderColor, width: 1.5),
+    return Semantics(
+      button: onTap != null,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            children: [
+              Container(
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: borderColor, width: 1.5),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child:
+                    avatarKey != null
+                        ? DominoAvatarVisual(
+                          avatarKey: avatarKey!,
+                          fallbackIcon: icon,
+                          backgroundColor: color,
+                        )
+                        : avatarText == null
+                        ? Icon(icon, color: Colors.white, size: 32)
+                        : Center(
+                          child: Text(
+                            avatarText!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                initials,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textScaler: const TextScaler.linear(1),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textScaler: const TextScaler.linear(1),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.62),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
-          clipBehavior: Clip.antiAlias,
-          child:
-              avatarKey != null
-                  ? DominoAvatarVisual(
-                    avatarKey: avatarKey!,
-                    fallbackIcon: icon,
-                    backgroundColor: color,
-                  )
-                  : avatarText == null
-                  ? Icon(icon, color: Colors.white, size: 32)
-                  : Center(
-                    child: Text(
-                      avatarText!,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          initials,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textScaler: const TextScaler.linear(1),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textScaler: const TextScaler.linear(1),
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.62),
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
