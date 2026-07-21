@@ -1255,6 +1255,15 @@ Plan tecnico pendiente para hacerlo real:
 - El diálogo manual ya no usa un controlador que pueda descartarse durante la animación de cierre.
 - Versión: `5.0.119+134`.
 
+## Aceptación real de invitaciones y selección directa de extremo (2026-07-21)
+
+- Las invitaciones de Block ya no crean ni abren la partida antes de ser aceptadas.
+- El anfitrión permanece en una ventana de espera con opción para cancelar; la partida se crea únicamente cuando el invitado pulsa `Aceptar`.
+- El sobre global permanece visible, suma invitaciones de juego y solicitudes de amistad, muestra el contador y conserva el pulso verde mientras existan pendientes.
+- Desde el mismo sobre se pueden aceptar o rechazar tanto partidas como solicitudes de amistad.
+- Se eliminó el diálogo `Elegir color / Choose a color`: cuando una ficha sirve en ambos extremos, se selecciona la ficha y luego se toca directamente el extremo iluminado en la mesa.
+- Versión: `5.0.120+135`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

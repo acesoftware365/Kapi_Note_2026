@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../screens/domino_player_profile.dart';
+import '../screens/domino_online_game_screen.dart';
 import '../services/block_room_service.dart';
 import '../services/player_points_service.dart';
 import '../services/teams_online_service.dart';
@@ -26,9 +27,12 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _friendRequestSubscription;
   Timer? _presenceTimer;
   DominoPlayerProfile? _profile;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _pending = const [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _friendRequests = const [];
   late final AnimationController _pulse;
 
   bool get _isSpanish =>
@@ -70,13 +74,32 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
                 });
           if (!mounted) return;
           setState(() => _pending = pending);
-          if (pending.isEmpty) {
-            _pulse.stop();
-            _pulse.value = 1;
-          } else if (!_pulse.isAnimating) {
-            _pulse.repeat(reverse: true);
-          }
+          _syncPulse();
         });
+    _friendRequestSubscription = _db
+        .collection('kapi_friend_requests')
+        .where('toId', isEqualTo: profile.publicId.toUpperCase())
+        .snapshots()
+        .listen((snapshot) {
+          final requests =
+              snapshot.docs
+                  .where((doc) => doc.data()['status'] == 'pending')
+                  .toList();
+          if (!mounted) return;
+          setState(() => _friendRequests = requests);
+          _syncPulse();
+        });
+  }
+
+  int get _pendingCount => _pending.length + _friendRequests.length;
+
+  void _syncPulse() {
+    if (_pendingCount == 0) {
+      _pulse.stop();
+      _pulse.value = 1;
+    } else if (!_pulse.isAnimating) {
+      _pulse.repeat(reverse: true);
+    }
   }
 
   void _startPresence(DominoPlayerProfile profile) {
@@ -122,6 +145,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _subscription?.cancel();
+    _friendRequestSubscription?.cancel();
     _presenceTimer?.cancel();
     _pulse.dispose();
     super.dispose();
@@ -132,45 +156,54 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
     return Stack(
       children: [
         widget.child,
-        if (_pending.isNotEmpty)
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 7,
-            right: 10,
-            child: SafeArea(
-              top: false,
-              child: ScaleTransition(
-                scale: _pulse,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _showInbox,
-                    customBorder: const CircleBorder(),
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Container(
-                          width: 46,
-                          height: 46,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF168B50),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: const Color(0xFF8CFFB9),
-                              width: 2,
-                            ),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0xAA39E989),
-                                blurRadius: 16,
-                                spreadRadius: 2,
-                              ),
-                            ],
+        Positioned(
+          top: MediaQuery.paddingOf(context).top + 7,
+          right: 10,
+          child: SafeArea(
+            top: false,
+            child: ScaleTransition(
+              scale: _pulse,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _showInbox,
+                  customBorder: const CircleBorder(),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color:
+                              _pendingCount == 0
+                                  ? const Color(0xFF263542)
+                                  : const Color(0xFF168B50),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color:
+                                _pendingCount == 0
+                                    ? Colors.white38
+                                    : const Color(0xFF8CFFB9),
+                            width: 2,
                           ),
-                          child: const Icon(
-                            Icons.mark_email_unread_rounded,
-                            color: Colors.white,
-                          ),
+                          boxShadow:
+                              _pendingCount == 0
+                                  ? const []
+                                  : const [
+                                    BoxShadow(
+                                      color: Color(0xAA39E989),
+                                      blurRadius: 16,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
                         ),
+                        child: const Icon(
+                          Icons.mark_email_unread_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      if (_pendingCount > 0)
                         Positioned(
                           right: -5,
                           top: -5,
@@ -185,7 +218,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
                               shape: BoxShape.circle,
                             ),
                             child: Text(
-                              '${_pending.length}',
+                              '$_pendingCount',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                 color: Colors.white,
@@ -195,13 +228,13 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
+        ),
       ],
     );
   }
@@ -220,7 +253,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    _isSpanish ? 'Invitaciones de juego' : 'Game invitations',
+                    _isSpanish ? 'Notificaciones' : 'Notifications',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 22,
@@ -228,13 +261,102 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
                     ),
                   ),
                   const SizedBox(height: 12),
+                  if (_pending.isEmpty && _friendRequests.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        _isSpanish
+                            ? 'No tienes notificaciones pendientes.'
+                            : 'You have no pending notifications.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    ),
                   for (final invite in _pending)
                     _inviteCard(sheetContext, invite),
+                  for (final request in _friendRequests)
+                    _friendRequestCard(sheetContext, request),
                 ],
               ),
             ),
           ),
     );
+  }
+
+  Widget _friendRequestCard(
+    BuildContext sheetContext,
+    QueryDocumentSnapshot<Map<String, dynamic>> request,
+  ) {
+    final data = request.data();
+    final initials = data['fromInitials'] as String? ?? 'Kapi';
+    return Card(
+      color: const Color(0xFF172B3A),
+      child: Padding(
+        padding: const EdgeInsets.all(13),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.person_add_alt_1_rounded,
+              color: Color(0xFF5AB7FF),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _isSpanish
+                    ? '$initials quiere agregarte como amigo.'
+                    : '$initials wants to add you as a friend.',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: _isSpanish ? 'Rechazar' : 'Decline',
+              onPressed: () => _declineFriendRequest(request),
+              icon: const Icon(Icons.close_rounded, color: Colors.white60),
+            ),
+            IconButton.filled(
+              tooltip: _isSpanish ? 'Aceptar' : 'Accept',
+              onPressed: () => _acceptFriendRequest(request),
+              style: IconButton.styleFrom(
+                backgroundColor: const Color(0xFF22A863),
+              ),
+              icon: const Icon(Icons.check_rounded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _declineFriendRequest(
+    QueryDocumentSnapshot<Map<String, dynamic>> request,
+  ) => request.reference.update({
+    'status': 'rejected',
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  Future<void> _acceptFriendRequest(
+    QueryDocumentSnapshot<Map<String, dynamic>> request,
+  ) async {
+    final profile = _profile;
+    if (profile == null) return;
+    final fromId = (request.data()['fromId'] as String? ?? '').toUpperCase();
+    final myId = profile.publicId.toUpperCase();
+    if (fromId.isEmpty) return;
+    final ids = [fromId, myId]..sort();
+    final batch = _db.batch();
+    batch.set(
+      _db.collection('kapi_friendships').doc(ids.join('__')),
+      {'users': ids, 'createdAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+    batch.update(request.reference, {
+      'status': 'accepted',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
   }
 
   Widget _inviteCard(
@@ -348,8 +470,48 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
       return;
     }
 
-    final gameId = data['gameId'] as String? ?? '';
-    if (gameId.isEmpty) return;
+    var gameId = data['gameId'] as String? ?? '';
+    if (gameId.isEmpty) {
+      final hostId = (data['fromId'] as String? ?? '').toUpperCase();
+      final hostDoc =
+          await _db.collection('kapi_lobby_profiles').doc(hostId).get();
+      final hostData = hostDoc.data();
+      if (hostData == null) {
+        await invite.reference.update({
+          'status': 'failed',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+      final host = DominoPlayerProfile(
+        initials:
+            hostData['initials'] as String? ??
+            data['fromInitials'] as String? ??
+            'P1',
+        countryCode: hostData['countryCode'] as String? ?? '',
+        code: hostData['code'] as String? ?? hostId.split('.').last,
+        avatarKey: hostData['avatarKey'] as String? ?? 'person',
+      );
+      try {
+        gameId = await OnlineGameFactory.createClassicGame(
+          db: _db,
+          host: host,
+          guestId: profile.publicId,
+          guestInitials: profile.initials,
+        );
+      } on StateError {
+        await invite.reference.update({
+          'status': 'roomFull',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        _message(
+          _isSpanish
+              ? 'Uno de los jugadores ya está en otra partida.'
+              : 'One of the players is already in another game.',
+        );
+        return;
+      }
+    }
     final canEnter = await BlockRoomService(
       _db,
     ).canEnterRoom(playerId: profile.publicId, gameId: gameId);
@@ -367,6 +529,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
     }
     await invite.reference.update({
       'status': 'accepted',
+      'gameId': gameId,
       'updatedAt': FieldValue.serverTimestamp(),
     });
     widget.navigatorKey.currentState?.pushNamed(

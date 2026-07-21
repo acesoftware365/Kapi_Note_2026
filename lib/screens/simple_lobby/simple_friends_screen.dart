@@ -83,7 +83,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
             onPressed: _showAddFriendDialog,
             icon: const Icon(Icons.person_add_alt_1_rounded),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 60),
         ],
       ),
       bottomNavigationBar:

@@ -198,12 +198,23 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     var side =
         sides.contains(_BoardSide.right) ? _BoardSide.right : sides.first;
     if (sides.length > 1 && game.leftOpen != game.rightOpen) {
-      final choice = await _askSideForTile(tile);
-      if (choice == null || !mounted) return;
-      side = choice;
+      setState(() => _sideChoiceTile = tile);
+      await AudioManager.instance.playSfx(AudioAssets.buttonTap);
+      return;
     }
     if (!sides.contains(side)) return;
 
+    await AudioManager.instance.playMusic(AudioAssets.gameplayLoop);
+    await _commitTile(tile, side);
+  }
+
+  Future<void> _playSelectedTileOnSide(
+    _OnlineGame game,
+    _BoardSide side,
+  ) async {
+    final tile = _sideChoiceTile;
+    if (tile == null || !game.validSides(tile).contains(side)) return;
+    setState(() => _sideChoiceTile = null);
     await AudioManager.instance.playMusic(AudioAssets.gameplayLoop);
     await _commitTile(tile, side);
   }
@@ -398,98 +409,6 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
       _lastAudioTurnId = game.turnId;
       _lastAudioRoundOver = game.roundOver;
     });
-  }
-
-  Future<_BoardSide?> _askSideForTile(_DominoTile tile) async {
-    setState(() => _sideChoiceTile = tile);
-    try {
-      return await showDialog<_BoardSide>(
-        context: context,
-        barrierColor: Colors.black.withValues(alpha: 0.14),
-        builder:
-            (dialogContext) => Dialog(
-              alignment: Alignment.topCenter,
-              insetPadding: const EdgeInsets.fromLTRB(10, 72, 10, 10),
-              backgroundColor: Colors.transparent,
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 420),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xF7101D29),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _gold.withValues(alpha: 0.75)),
-                ),
-                child: Row(
-                  children: [
-                    _DominoWidget(
-                      tile: tile,
-                      vertical: tile.isDouble,
-                      tableSize: 27,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _isSpanish ? 'Elige un color' : 'Choose a color',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                          height: 1.1,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => Navigator.pop(dialogContext),
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        color: Colors.white70,
-                      ),
-                    ),
-                    FilledButton(
-                      onPressed:
-                          () => Navigator.pop(dialogContext, _BoardSide.left),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFE53935),
-                        minimumSize: const Size(68, 40),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      child: Text(
-                        _isSpanish ? 'ROJO' : 'RED',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    FilledButton(
-                      onPressed:
-                          () => Navigator.pop(dialogContext, _BoardSide.right),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF1976D2),
-                        minimumSize: const Size(68, 40),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      child: Text(
-                        _isSpanish ? 'AZUL' : 'BLUE',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-      );
-    } finally {
-      if (mounted) setState(() => _sideChoiceTile = null);
-    }
   }
 
   void _showMessage(String message) {
@@ -724,6 +643,8 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                           playedTileScale: _playedTileScale,
                           sideChoiceTile: _sideChoiceTile,
                           sideChoicePulse: _sideChoicePulse,
+                          onSideSelected:
+                              (side) => _playSelectedTileOnSide(game, side),
                         ),
                       ),
                       if (game.matchOver)
@@ -2764,12 +2685,14 @@ class _OnlineBoard extends StatelessWidget {
     this.playedTileScale = 1.0,
     this.sideChoiceTile,
     this.sideChoicePulse,
+    this.onSideSelected,
   });
 
   final List<_BoardDomino> board;
   final double playedTileScale;
   final _DominoTile? sideChoiceTile;
   final Animation<double>? sideChoicePulse;
+  final ValueChanged<_BoardSide>? onSideSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -2892,7 +2815,9 @@ class _OnlineBoard extends StatelessWidget {
               Positioned(
                 left: preview.position.dx,
                 top: preview.position.dy,
-                child: IgnorePointer(
+                child: GestureDetector(
+                  onTap: () => onSideSelected?.call(preview.side),
+                  behavior: HitTestBehavior.opaque,
                   child: AnimatedBuilder(
                     animation:
                         sideChoicePulse ?? const AlwaysStoppedAnimation(0.5),
@@ -2988,6 +2913,7 @@ class _OnlineBoard extends StatelessWidget {
       candidate.layoutDirection,
     );
     return _OnlineSidePreview(
+      side: side,
       tile: candidate.flipVisual ? placed.flipped : placed,
       position: position,
       color:
@@ -3617,11 +3543,13 @@ class _BoardPosition {
 
 class _OnlineSidePreview {
   const _OnlineSidePreview({
+    required this.side,
     required this.tile,
     required this.position,
     required this.color,
   });
 
+  final _BoardSide side;
   final _DominoTile tile;
   final _BoardPosition position;
   final Color color;

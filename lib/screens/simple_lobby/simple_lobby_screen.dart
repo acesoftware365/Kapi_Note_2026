@@ -800,26 +800,21 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       final playerDoc =
           await _db.collection('kapi_lobby_profiles').doc(playerId).get();
       final initials = playerDoc.data()?['initials'] as String? ?? 'P2';
-      final gameId = await OnlineGameFactory.createClassicGame(
-        db: _db,
-        host: profile,
-        guestId: playerId,
-        guestInitials: initials,
-      );
-      await _db.collection('kapi_game_invites').add({
+      final inviteRef = _db.collection('kapi_game_invites').doc();
+      await inviteRef.set({
         'gameType': 'block',
         'fromId': profile.publicId.toUpperCase(),
         'toId': playerId.toUpperCase(),
         'mode': 'block',
         'status': 'pending',
-        'gameId': gameId,
         'fromInitials': profile.initials,
         'toInitials': initials,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
       _showMessage(_isSpanish ? 'Invitacion enviada.' : 'Invite sent.');
-      await _openOnlineGame(gameId);
+      final gameId = await _waitForInviteResponse(inviteRef);
+      if (gameId != null && mounted) await _openOnlineGame(gameId);
     } on StateError {
       _showMessage(
         _isSpanish
@@ -827,6 +822,107 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
             : 'The room could not be created. One player is already in a game.',
       );
     }
+  }
+
+  Future<String?> _waitForInviteResponse(
+    DocumentReference<Map<String, dynamic>> inviteRef,
+  ) async {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (
+            dialogContext,
+          ) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: inviteRef.snapshots(),
+            builder: (context, snapshot) {
+              final data = snapshot.data?.data() ?? const <String, dynamic>{};
+              final status = data['status'] as String? ?? 'pending';
+              final gameId = data['gameId'] as String? ?? '';
+              if (status == 'accepted' && gameId.isNotEmpty) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (Navigator.of(dialogContext).canPop()) {
+                    Navigator.pop(dialogContext, gameId);
+                  }
+                });
+              } else if (status == 'declined' ||
+                  status == 'cancelled' ||
+                  status == 'roomFull' ||
+                  status == 'failed') {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (Navigator.of(dialogContext).canPop()) {
+                    Navigator.pop(dialogContext);
+                  }
+                  if (mounted) {
+                    _showMessage(
+                      status == 'declined'
+                          ? (_isSpanish
+                              ? 'El jugador rechazó la invitación.'
+                              : 'The player declined the invitation.')
+                          : (_isSpanish
+                              ? 'La invitación ya no está disponible.'
+                              : 'The invitation is no longer available.'),
+                    );
+                  }
+                });
+              }
+              return AlertDialog(
+                backgroundColor: const Color(0xFF101C29),
+                surfaceTintColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(26),
+                  side: const BorderSide(color: Color(0xFFFFD36B), width: 1.4),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 54,
+                      height: 54,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF45D483),
+                        strokeWidth: 5,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      _isSpanish
+                          ? 'Esperando que el jugador acepte'
+                          : 'Waiting for the player to accept',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _isSpanish
+                          ? 'La partida comenzará solamente después de aceptar la invitación.'
+                          : 'The game will start only after the invitation is accepted.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
+                ),
+                actionsAlignment: MainAxisAlignment.center,
+                actions: [
+                  TextButton.icon(
+                    onPressed: () async {
+                      await inviteRef.update({
+                        'status': 'cancelled',
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      });
+                    },
+                    icon: const Icon(Icons.close_rounded),
+                    label: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
   }
 
   Future<void> _openFriends() async {
