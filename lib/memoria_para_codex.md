@@ -1264,6 +1264,14 @@ Plan tecnico pendiente para hacerlo real:
 - Se eliminó el diálogo `Elegir color / Choose a color`: cuando una ficha sirve en ambos extremos, se selecciona la ficha y luego se toca directamente el extremo iluminado en la mesa.
 - Versión: `5.0.120+135`.
 
+## Perfil visual en Jugador encontrado (2026-07-21)
+
+- La transición `Jugador encontrado` ya no muestra el ID público largo ni repite las iniciales del jugador.
+- Cada tarjeta muestra únicamente la foto de perfil, las iniciales, una bandera grande y el escudo con el nivel actual.
+- La bandera también aparece como marca visual grande y translúcida dentro de los paneles rojo y azul.
+- Los marcos, sombras y escudos reutilizan los colores de Iron, Bronze, Silver, Gold y Platinum del perfil del juego.
+- Versión: `5.0.121+136`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

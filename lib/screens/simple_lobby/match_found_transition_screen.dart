@@ -252,57 +252,156 @@ class _PlayerVersusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tier = DominoTierVisual.fromScore(points);
+    final leading = alignment == CrossAxisAlignment.start;
+    final flag = _countryFlag(profile.countryCode);
+    final profileContent = Row(
+      mainAxisAlignment:
+          leading ? MainAxisAlignment.start : MainAxisAlignment.end,
+      children: [
+        if (!leading) ...[
+          _ProfileIdentity(profile: profile, tier: tier, flag: flag),
+          const SizedBox(width: 16),
+        ],
+        _ProfileAvatar(profile: profile, tier: tier),
+        if (leading) ...[
+          const SizedBox(width: 16),
+          _ProfileIdentity(profile: profile, tier: tier, flag: flag),
+        ],
+      ],
+    );
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      height: 150,
       decoration: BoxDecoration(
         color: const Color(0xE6101820),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: tier.frameColor(active: true), width: 2),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: tier.frameColor(active: true), width: 2.2),
         boxShadow: tier.shadows(active: true),
       ),
-      child: Column(
-        crossAxisAlignment: alignment,
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
         children: [
-          Row(
-            mainAxisAlignment:
-                alignment == CrossAxisAlignment.start
-                    ? MainAxisAlignment.start
-                    : MainAxisAlignment.end,
-            children: [
-              CircleAvatar(
-                backgroundColor: tier.deep,
-                child: Text(
-                  profile.initials,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Flexible(
-                child: Text(
-                  profile.publicId,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
+          Positioned(
+            right: leading ? -8 : null,
+            left: leading ? null : -8,
+            top: -28,
+            child: Opacity(
+              opacity: 0.15,
+              child: Text(flag, style: const TextStyle(fontSize: 150)),
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '${profile.countryCode} · ${tier.label} · $points pts',
-            style: TextStyle(color: tier.accent, fontWeight: FontWeight.w900),
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: profileContent,
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.profile, required this.tier});
+
+  final DominoPlayerProfile profile;
+  final DominoTierVisual tier;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 88,
+      height: 88,
+      decoration: BoxDecoration(
+        color: tier.deep,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: tier.accent, width: 3),
+        boxShadow: tier.shadows(active: true),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: DominoAvatarVisual(
+        avatarKey: profile.avatarKey,
+        fallbackIcon: profile.icon,
+        backgroundColor: tier.deep,
+      ),
+    );
+  }
+}
+
+class _ProfileIdentity extends StatelessWidget {
+  const _ProfileIdentity({
+    required this.profile,
+    required this.tier,
+    required this.flag,
+  });
+
+  final DominoPlayerProfile profile;
+  final DominoTierVisual tier;
+  final String flag;
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            profile.initials,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 27,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(flag, style: const TextStyle(fontSize: 32)),
+              const SizedBox(width: 9),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: tier.deep.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: tier.accent, width: 1.4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(tier.icon, color: tier.accent, size: 22),
+                    const SizedBox(width: 6),
+                    Text(
+                      tier.label,
+                      style: TextStyle(
+                        color: tier.accent,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _countryFlag(String countryCode) {
+  final normalized = countryCode.trim().toUpperCase();
+  if (!RegExp(r'^[A-Z]{2}$').hasMatch(normalized)) return '🌐';
+  return String.fromCharCodes(
+    normalized.codeUnits.map((character) => character + 127397),
+  );
 }
 
 class _ElectricSeamPainter extends CustomPainter {
