@@ -1241,6 +1241,12 @@ Plan tecnico pendiente para hacerlo real:
 - Los botones de invitar y la selección múltiple quedan reservados exclusivamente para amigos reales conectados.
 - Versión: `5.0.117+132`.
 
+## Corrección del diálogo Agregar amigo (2026-07-21)
+
+- Se corrigió el cierre prematuro del controlador del campo de texto que provocaba la pantalla roja `'_dependents.isEmpty': is not true` al intentar agregar un amigo.
+- El diálogo ahora conserva el texto sin depender de un controlador descartado durante la animación de cierre.
+- Versión: `5.0.118+133`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

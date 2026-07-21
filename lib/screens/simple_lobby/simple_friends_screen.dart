@@ -332,7 +332,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
   }
 
   Future<void> _showAddFriendDialog() async {
-    final controller = TextEditingController();
+    var friendId = '';
     final input = await showDialog<String>(
       context: context,
       builder:
@@ -357,7 +357,6 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
                 ),
                 const SizedBox(height: 14),
                 TextField(
-                  controller: controller,
                   autofocus: true,
                   textCapitalization: TextCapitalization.characters,
                   style: const TextStyle(color: Colors.white),
@@ -371,6 +370,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
+                  onChanged: (value) => friendId = value,
                   onSubmitted: (value) => Navigator.pop(context, value),
                 ),
               ],
@@ -381,14 +381,13 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
                 child: Text(_isSpanish(context) ? 'Cancelar' : 'Cancel'),
               ),
               FilledButton.icon(
-                onPressed: () => Navigator.pop(context, controller.text),
+                onPressed: () => Navigator.pop(context, friendId),
                 icon: const Icon(Icons.send_rounded),
                 label: Text(_isSpanish(context) ? 'Enviar' : 'Send'),
               ),
             ],
           ),
     );
-    controller.dispose();
     if (input == null || input.trim().isEmpty || !mounted) return;
     await _sendFriendRequest(input);
   }
