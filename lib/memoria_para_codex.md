@@ -1280,6 +1280,13 @@ Plan tecnico pendiente para hacerlo real:
 - La animación del tray reutiliza el contenido de la mano para evitar reconstruir las fichas en cada cuadro.
 - Versión: `5.0.122+137`.
 
+## Barra superior de Block online con Settings visible (2026-07-21)
+
+- Se eliminó el texto redundante `Block` de la barra superior para liberar espacio horizontal.
+- El engranaje de configuración se desplazó fuera del área ocupada por el sobre global y vuelve a ser visible y pulsable.
+- Se conservan Home, Notes, amigos, personalización, Settings y el centro de notificaciones.
+- Versión: `5.0.123+138`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

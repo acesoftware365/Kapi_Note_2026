@@ -498,10 +498,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
       padding: const EdgeInsets.all(18),
       child: Column(
         children: [
-          _buildTopBar(
-            title: _isSpanish ? 'Online' : 'Online',
-            canResumeGame: false,
-          ),
+          _buildTopBar(canResumeGame: false),
           const Spacer(),
           Text(
             message,
@@ -553,7 +550,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       child: Column(
         children: [
-          _buildTopBar(title: 'Block', canResumeGame: true),
+          _buildTopBar(canResumeGame: true),
           const SizedBox(height: 8),
           Expanded(
             child: Container(
@@ -814,7 +811,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     if (mounted) await _finishMatch(game);
   }
 
-  Widget _buildTopBar({required String title, required bool canResumeGame}) {
+  Widget _buildTopBar({required bool canResumeGame}) {
     return Row(
       children: [
         IconButton(
@@ -826,15 +823,6 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed:
                     () => Navigator.pushNamed(
@@ -876,6 +864,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
           tooltip: _isSpanish ? 'Configuracion' : 'Settings',
           icon: const Icon(Icons.settings_rounded, color: Colors.white),
         ),
+        const SizedBox(width: 54),
       ],
     );
   }
@@ -1063,7 +1052,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
       padding: const EdgeInsets.all(18),
       child: Column(
         children: [
-          _buildTopBar(title: 'Block', canResumeGame: false),
+          _buildTopBar(canResumeGame: false),
           const Spacer(),
           Icon(
             iLeft ? Icons.exit_to_app_rounded : Icons.person_off_rounded,
