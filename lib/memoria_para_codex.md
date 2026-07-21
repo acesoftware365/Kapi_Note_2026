@@ -1272,6 +1272,14 @@ Plan tecnico pendiente para hacerlo real:
 - Los marcos, sombras y escudos reutilizan los colores de Iron, Bronze, Silver, Gold y Platinum del perfil del juego.
 - Versión: `5.0.121+136`.
 
+## Fichas equipadas en Block online y trays con textura (2026-07-21)
+
+- Block online ahora aplica el color principal y el color de puntos del dominó equipado tanto en la mano como en las fichas colocadas sobre la mesa.
+- Se corrigió la desconexión visual donde la tienda marcaba un dominó como activo pero el juego continuaba mostrando los colores predeterminados.
+- Los trays conservan superficies sólidas y ahora incorporan grano, líneas de material, profundidad, brillo de borde y un reflejo animado sutil.
+- La animación del tray reutiliza el contenido de la mano para evitar reconstruir las fichas en cada cuadro.
+- Versión: `5.0.122+137`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

@@ -530,6 +530,9 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     final tableStyle = KapiCosmeticsService.instance.equipped(
       KapiCosmeticType.table,
     );
+    final dominoStyle = KapiCosmeticsService.instance.equipped(
+      KapiCosmeticType.domino,
+    );
     final myTurn = game.isMyTurn(myPlayerId);
     final canPass = myTurn && !game.hasMove(myPlayerId) && !game.roundOver;
     _handleGameAudio(game, myPlayerId);
@@ -641,6 +644,8 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                         child: _OnlineBoard(
                           board: game.board,
                           playedTileScale: _playedTileScale,
+                          dominoColor: dominoStyle.primary,
+                          pipColor: dominoStyle.secondary,
                           sideChoiceTile: _sideChoiceTile,
                           sideChoicePulse: _sideChoicePulse,
                           onSideSelected:
@@ -1757,6 +1762,8 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                     vertical: true,
                     accent: playable ? _gold : null,
                     tableSize: dominoShort,
+                    tileColor: dominoStyle.primary,
+                    pipColor: dominoStyle.secondary,
                   ),
                 ),
               );
@@ -2129,7 +2136,11 @@ class OnlineGameFactory {
     ];
     const tileSize = Size(40, 72.8);
     const boardSize = Size(360, 520);
-    const view = _OnlineBoard(board: []);
+    const view = _OnlineBoard(
+      board: [],
+      dominoColor: Colors.white,
+      pipColor: Colors.black,
+    );
     final positions = view._layoutBoard(
       board: board,
       tileSize: tileSize,
@@ -2682,6 +2693,8 @@ class _OnlineGame {
 class _OnlineBoard extends StatelessWidget {
   const _OnlineBoard({
     required this.board,
+    required this.dominoColor,
+    required this.pipColor,
     this.playedTileScale = 1.0,
     this.sideChoiceTile,
     this.sideChoicePulse,
@@ -2689,6 +2702,8 @@ class _OnlineBoard extends StatelessWidget {
   });
 
   final List<_BoardDomino> board;
+  final Color dominoColor;
+  final Color pipColor;
   final double playedTileScale;
   final _DominoTile? sideChoiceTile;
   final Animation<double>? sideChoicePulse;
@@ -2808,6 +2823,8 @@ class _OnlineBoard extends StatelessWidget {
                     vertical: positions[index].vertical,
                     first: board[index].isFirst,
                     tableSize: tileShort * positions[index].scaleFactor,
+                    tileColor: dominoColor,
+                    pipColor: pipColor,
                   ),
                 ),
               ),
