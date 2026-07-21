@@ -1225,6 +1225,14 @@ Plan tecnico pendiente para hacerlo real:
 - El nuevo producto `kapi_coins_1500` debe crearse en App Store Connect y Google Play Console; los demás identificadores existentes conservan compatibilidad aunque ahora entreguen cantidades balanceadas.
 - Versión: `5.0.115+130`.
 
+## Kapi Coins solamente por victorias online (2026-07-20)
+
+- Los 10 Kapi Coins de recompensa se entregan únicamente cuando el jugador gana una mano online en Block o Teams 2 vs 2.
+- Las manos ganadas contra CPU continúan registrando su resultado normal, pero no añaden Kapi Coins.
+- Cada mano online usa una clave única de recompensa para impedir que una reconexión o reconstrucción de pantalla entregue las mismas monedas dos veces.
+- La tienda ahora comunica explícitamente: `Gana 10 por cada mano online ganada`.
+- Versión: `5.0.116+131`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

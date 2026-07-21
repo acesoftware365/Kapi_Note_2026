@@ -1115,6 +1115,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
         playerScore: _teamScores[0],
         cpuScore: _teamScores[1],
         wonRound: myTeamWon,
+        awardCoins: _isOnline,
         rewardKey: rewardKey,
       ),
     );

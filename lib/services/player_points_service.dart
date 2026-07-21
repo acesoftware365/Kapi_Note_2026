@@ -69,6 +69,7 @@ class PlayerPointsService {
     required int playerScore,
     required int cpuScore,
     required bool wonRound,
+    bool awardCoins = false,
     String? rewardKey,
   }) async {
     final cleanCode = code.toUpperCase();
@@ -80,7 +81,7 @@ class PlayerPointsService {
       cpuScore: cpuScore,
       wonRound: wonRound,
     );
-    if (wonRound) {
+    if (wonRound && awardCoins) {
       await KapiCosmeticsService.instance.claimVictory(rewardKey: rewardKey);
     }
 

@@ -77,6 +77,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
   _OnlineGame? _latestRenderedGame;
   int _automationScheduledRevision = -1;
   String? _automationHandledMatch;
+  String? _recordedOnlineRoundKey;
   int _automationCompletedMatches = 0;
 
   String get _adUnitId =>
@@ -613,6 +614,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     final myTurn = game.isMyTurn(myPlayerId);
     final canPass = myTurn && !game.hasMove(myPlayerId) && !game.roundOver;
     _handleGameAudio(game, myPlayerId);
+    _recordOnlineRoundIfNeeded(game, myPlayerId);
     _startMatchCelebrationIfNeeded(game, myPlayerId);
     _scrollOnlineHandToPlayableStart(game, myPlayerId, myHand);
     _scheduleVerificationMove(game, myPlayerId);
@@ -786,6 +788,19 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
         ],
       ),
     );
+  }
+
+  void _recordOnlineRoundIfNeeded(_OnlineGame game, String myPlayerId) {
+    if (!game.roundOver || game.winnerId.isEmpty) return;
+    final rewardKey =
+        'block-online-${game.id}-${game.roundNumber}-${game.revision}-$myPlayerId';
+    if (_recordedOnlineRoundKey == rewardKey) return;
+    _recordedOnlineRoundKey = rewardKey;
+    if (game.winnerId == myPlayerId) {
+      unawaited(
+        KapiCosmeticsService.instance.claimVictory(rewardKey: rewardKey),
+      );
+    }
   }
 
   void _startMatchCelebrationIfNeeded(_OnlineGame game, String myPlayerId) {

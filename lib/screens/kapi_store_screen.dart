@@ -177,8 +177,8 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                             ),
                             Text(
                               _isSpanish
-                                  ? 'Gana 10 por mano. El primer premio requiere 15 victorias.'
-                                  : 'Earn 10 per hand. The first reward takes 15 wins.',
+                                  ? 'Gana 10 por cada mano online ganada.'
+                                  : 'Earn 10 for every online hand you win.',
                               style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 12,
