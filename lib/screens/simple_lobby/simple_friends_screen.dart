@@ -14,7 +14,6 @@ class SimpleLobbyFriend {
     required this.avatarKey,
     required this.points,
     required this.online,
-    this.example = false,
   });
 
   final String publicId;
@@ -24,7 +23,6 @@ class SimpleLobbyFriend {
   final String avatarKey;
   final int points;
   final bool online;
-  final bool example;
 }
 
 class SimpleFriendsScreen extends StatefulWidget {
@@ -139,7 +137,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
             }
             ids.remove(myId);
             if (ids.isEmpty) {
-              return _emptyWithPreview(context);
+              return _emptyState(context);
             }
             return FutureBuilder<List<SimpleLobbyFriend>>(
               future: _loadFriends(db, ids),
@@ -206,12 +204,11 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
     BuildContext context, {
     required List<SimpleLobbyFriend> online,
     required List<SimpleLobbyFriend> offline,
-    bool preview = false,
   }) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       children: [
-        _informationCard(context, preview: preview),
+        _informationCard(context),
         const SizedBox(height: 16),
         _pendingRequestsSection(context),
         const SizedBox(height: 14),
@@ -537,7 +534,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
     );
   }
 
-  Widget _informationCard(BuildContext context, {required bool preview}) {
+  Widget _informationCard(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -563,13 +560,9 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  preview
-                      ? (_isSpanish(context)
-                          ? 'Así se verá tu lista'
-                          : 'This is how your list will look')
-                      : (_isSpanish(context)
-                          ? 'Tus amigos guardados'
-                          : 'Your saved friends'),
+                  _isSpanish(context)
+                      ? 'Tus amigos guardados'
+                      : 'Your saved friends',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 17,
@@ -578,13 +571,9 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  preview
-                      ? (_isSpanish(context)
-                          ? 'Los perfiles de abajo son solo un ejemplo. Tus amigos aparecerán aquí cuando acepten la solicitud.'
-                          : 'The profiles below are examples only. Your friends will appear here after accepting the request.')
-                      : (_isSpanish(context)
-                          ? 'Los que están en línea pueden recibir una invitación. Los desconectados permanecen guardados.'
-                          : 'Online friends can receive an invitation. Offline friends remain saved here.'),
+                  _isSpanish(context)
+                      ? 'Los que están en línea pueden recibir una invitación. Los desconectados permanecen guardados.'
+                      : 'Online friends can receive an invitation. Offline friends remain saved here.',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.72),
                     height: 1.3,
@@ -599,46 +588,81 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
     );
   }
 
-  Widget _emptyWithPreview(BuildContext context) {
-    const online = [
-      SimpleLobbyFriend(
-        publicId: 'DEMO.ONLINE.1',
-        initials: 'JP',
-        countryCode: 'DO',
-        code: 'ONLINE',
-        avatarKey: 'caribbean_man',
-        points: 420,
-        online: true,
-        example: true,
-      ),
-      SimpleLobbyFriend(
-        publicId: 'DEMO.ONLINE.2',
-        initials: 'RA',
-        countryCode: 'PR',
-        code: 'FRIEND',
-        avatarKey: 'boricua_woman',
-        points: 185,
-        online: true,
-        example: true,
-      ),
-    ];
-    const offline = [
-      SimpleLobbyFriend(
-        publicId: 'DEMO.OFFLINE.1',
-        initials: 'LS',
-        countryCode: 'MX',
-        code: 'SAMPLE',
-        avatarKey: 'mexico_man',
-        points: 96,
-        online: false,
-        example: true,
-      ),
-    ];
-    return _friendsList(
-      context,
-      online: online,
-      offline: offline,
-      preview: true,
+  Widget _emptyState(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 24, 18, 28),
+      children: [
+        _pendingRequestsSection(context),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.fromLTRB(22, 32, 22, 28),
+          decoration: BoxDecoration(
+            color: const Color(0xFF102337).withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFF5AB7FF), width: 1.4),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 76,
+                height: 76,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1E88E5),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.group_add_rounded,
+                  color: Colors.white,
+                  size: 40,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                _isSpanish(context)
+                    ? 'Todavía no tienes amigos'
+                    : 'You have no friends yet',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 9),
+              Text(
+                _isSpanish(context)
+                    ? 'Agrega a una persona usando su hashtag de 6 caracteres. Aparecerá aquí cuando acepte tu solicitud.'
+                    : 'Add someone using their 6-character hashtag. They will appear here after accepting your request.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 22),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: FilledButton.icon(
+                  onPressed: _showAddFriendDialog,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E88E5),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  icon: const Icon(Icons.person_add_alt_1_rounded),
+                  label: Text(
+                    _isSpanish(context) ? 'Agregar amigo' : 'Add a friend',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -794,25 +818,6 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
               ),
             ),
           ),
-          if (friend.example) ...[
-            const SizedBox(width: 7),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFD36B).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFFFD36B)),
-              ),
-              child: Text(
-                _isSpanish(context) ? 'EJEMPLO' : 'EXAMPLE',
-                style: const TextStyle(
-                  color: Color(0xFFFFD36B),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ],
         ],
       ),
       subtitle: Text(
@@ -820,16 +825,9 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
         style: const TextStyle(color: Colors.white60),
       ),
       onTap:
-          widget.multiSelect && enabled && !friend.example
-              ? () => _toggleSelection(friend)
-              : null,
+          widget.multiSelect && enabled ? () => _toggleSelection(friend) : null,
       trailing:
-          friend.example
-              ? Icon(
-                enabled ? Icons.sports_esports_rounded : Icons.schedule_rounded,
-                color: enabled ? const Color(0xFF45D483) : Colors.white38,
-              )
-              : enabled
+          enabled
               ? widget.multiSelect
                   ? Checkbox(
                     value: _selected.containsKey(friend.publicId),
@@ -866,7 +864,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
   }
 
   void _toggleSelection(SimpleLobbyFriend friend) {
-    if (!friend.online || friend.example) return;
+    if (!friend.online) return;
     setState(() {
       if (_selected.remove(friend.publicId) != null) return;
       if (_selected.length >= widget.maxSelections) {

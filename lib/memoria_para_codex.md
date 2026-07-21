@@ -1233,6 +1233,14 @@ Plan tecnico pendiente para hacerlo real:
 - La tienda ahora comunica explícitamente: `Gana 10 por cada mano online ganada`.
 - Versión: `5.0.116+131`.
 
+## Lista de amigos sin perfiles ficticios (2026-07-21)
+
+- La pantalla `Mis amigos` ya no muestra perfiles de ejemplo cuando la lista real está vacía.
+- Si no existen amistades aceptadas, se presenta un estado vacío con instrucciones y un botón directo para agregar a alguien mediante su hashtag.
+- Las solicitudes pendientes continúan apareciendo y, después de aceptarlas, solamente los perfiles reales se organizan como online u offline.
+- Los botones de invitar y la selección múltiple quedan reservados exclusivamente para amigos reales conectados.
+- Versión: `5.0.117+132`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento
