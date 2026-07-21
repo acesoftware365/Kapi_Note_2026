@@ -1287,6 +1287,13 @@ Plan tecnico pendiente para hacerlo real:
 - Se conservan Home, Notes, amigos, personalización, Settings y el centro de notificaciones.
 - Versión: `5.0.123+138`.
 
+## Sobre de notificaciones no obstructivo (2026-07-21)
+
+- El sobre global ya no permanece flotando cuando no existen notificaciones, evitando que cubra Premium, Settings u otras acciones.
+- Cuando llega una invitación o solicitud, aparece en un tamaño más compacto con contador rojo y pulso verde.
+- Para las verificaciones locales siguientes se utilizarán solamente iPhone 16 e iPhone 16e.
+- Versión: `5.0.124+139`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento

@@ -156,54 +156,45 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
     return Stack(
       children: [
         widget.child,
-        Positioned(
-          top: MediaQuery.paddingOf(context).top + 7,
-          right: 10,
-          child: SafeArea(
-            top: false,
-            child: ScaleTransition(
-              scale: _pulse,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _showInbox,
-                  customBorder: const CircleBorder(),
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color:
-                              _pendingCount == 0
-                                  ? const Color(0xFF263542)
-                                  : const Color(0xFF168B50),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color:
-                                _pendingCount == 0
-                                    ? Colors.white38
-                                    : const Color(0xFF8CFFB9),
-                            width: 2,
+        if (_pendingCount > 0)
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + 7,
+            right: 10,
+            child: SafeArea(
+              top: false,
+              child: ScaleTransition(
+                scale: _pulse,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _showInbox,
+                    customBorder: const CircleBorder(),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF168B50),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFF8CFFB9),
+                              width: 2,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0xAA39E989),
+                                blurRadius: 14,
+                                spreadRadius: 1,
+                              ),
+                            ],
                           ),
-                          boxShadow:
-                              _pendingCount == 0
-                                  ? const []
-                                  : const [
-                                    BoxShadow(
-                                      color: Color(0xAA39E989),
-                                      blurRadius: 16,
-                                      spreadRadius: 2,
-                                    ),
-                                  ],
+                          child: const Icon(
+                            Icons.mark_email_unread_rounded,
+                            color: Colors.white,
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.mark_email_unread_rounded,
-                          color: Colors.white,
-                        ),
-                      ),
-                      if (_pendingCount > 0)
                         Positioned(
                           right: -5,
                           top: -5,
@@ -228,13 +219,13 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
                             ),
                           ),
                         ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
