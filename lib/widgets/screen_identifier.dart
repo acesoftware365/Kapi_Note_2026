@@ -43,6 +43,11 @@ class ScreenIdentifier extends StatelessWidget {
   final ValueListenable<String> routeListenable;
   final Widget child;
 
+  static const bool _showDevelopmentLabels = bool.fromEnvironment(
+    'KAPI_SHOW_SCREEN_LABELS',
+    defaultValue: false,
+  );
+
   static const Map<String, String> labels = {
     '/': 'Screen 00 - Splash',
     '/home': 'Screen 01 - Home',
@@ -77,7 +82,7 @@ class ScreenIdentifier extends StatelessWidget {
   Widget build(BuildContext context) {
     // Screen labels are only a development aid. They must never cover the
     // player's hand in APK/TestFlight builds.
-    if (kReleaseMode) return child;
+    if (kReleaseMode || !_showDevelopmentLabels) return child;
     return ValueListenableBuilder<String>(
       valueListenable: routeListenable,
       builder: (context, route, _) {

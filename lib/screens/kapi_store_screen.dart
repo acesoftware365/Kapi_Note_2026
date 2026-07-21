@@ -21,6 +21,12 @@ class KapiStoreScreen extends StatefulWidget {
 }
 
 class _KapiStoreScreenState extends State<KapiStoreScreen> {
+  // Hidden from normal builds and screenshot sessions. It can still be
+  // enabled explicitly for internal testing with KAPI_SHOW_TEST_COIN_BUTTON.
+  static const bool _showTestCoinButton = bool.fromEnvironment(
+    'KAPI_SHOW_TEST_COIN_BUTTON',
+    defaultValue: false,
+  );
   static const _ink = Color(0xFF050B14);
   static const _night = Color(0xFF091522);
   static const _surface = Color(0xFF101E2C);
@@ -41,12 +47,14 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<KapiCosmeticsService>();
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     final items = KapiCosmeticsService.catalog
         .where((item) => item.type == _type && item.storeVisible)
         .toList(growable: false);
     return Scaffold(
       backgroundColor: _ink,
       appBar: AppBar(
+        toolbarHeight: isTablet ? 78 : kToolbarHeight,
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -70,12 +78,12 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
         ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 12),
+            padding: EdgeInsets.only(right: isTablet ? 22 : 12),
             child: Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 7,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isTablet ? 18 : 12,
+                  vertical: isTablet ? 10 : 7,
                 ),
                 decoration: BoxDecoration(
                   color: const Color(0xCC0B1420),
@@ -92,17 +100,18 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.monetization_on_rounded,
                       color: Color(0xFFE6C66E),
-                      size: 17,
+                      size: isTablet ? 22 : 17,
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      '${store.balance}',
-                      style: const TextStyle(
+                      '${store.balance} KC',
+                      style: TextStyle(
                         color: _champagneLight,
                         fontWeight: FontWeight.w900,
+                        fontSize: isTablet ? 17 : 14,
                       ),
                     ),
                   ],
@@ -125,10 +134,15 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                padding: EdgeInsets.fromLTRB(
+                  isTablet ? 22 : 12,
+                  isTablet ? 18 : 12,
+                  isTablet ? 22 : 12,
+                  isTablet ? 14 : 8,
+                ),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(isTablet ? 20 : 12),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
@@ -148,30 +162,30 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                   child: Row(
                     children: [
                       Container(
-                        width: 44,
-                        height: 44,
+                        width: isTablet ? 64 : 44,
+                        height: isTablet ? 64 : 44,
                         decoration: BoxDecoration(
                           color: const Color(0xFF241E14),
                           shape: BoxShape.circle,
                           border: Border.all(color: _champagne),
                         ),
                         alignment: Alignment.center,
-                        child: const Icon(
+                        child: Icon(
                           Icons.monetization_on_rounded,
                           color: _champagneLight,
-                          size: 27,
+                          size: isTablet ? 38 : 27,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      SizedBox(width: isTablet ? 18 : 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               _isSpanish ? 'Kapi Coins' : 'Kapi Coins',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: _champagneLight,
-                                fontSize: 20,
+                                fontSize: isTablet ? 27 : 20,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
@@ -179,9 +193,9 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                               _isSpanish
                                   ? 'Gana 10 por cada mano online ganada.'
                                   : 'Earn 10 for every online hand you win.',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Colors.white70,
-                                fontSize: 12,
+                                fontSize: isTablet ? 16 : 12,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -193,7 +207,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           SizedBox(
-                            height: 36,
+                            height: isTablet ? 48 : 36,
                             child: FilledButton.icon(
                               onPressed: _showCoinPacks,
                               style: FilledButton.styleFrom(
@@ -211,14 +225,15 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                               ),
                               label: Text(
                                 _isSpanish ? 'Comprar' : 'Buy',
-                                style: const TextStyle(
-                                  fontSize: 11,
+                                style: TextStyle(
+                                  fontSize: isTablet ? 15 : 11,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
                             ),
                           ),
-                          if (KapiCosmeticsService.testCoinToolsEnabled) ...[
+                          if (_showTestCoinButton &&
+                              KapiCosmeticsService.testCoinToolsEnabled) ...[
                             const SizedBox(height: 5),
                             SizedBox(
                               height: 27,
@@ -269,7 +284,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                 ),
               ),
               SizedBox(
-                height: 66,
+                height: isTablet ? 104 : 66,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -311,20 +326,31 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final count =
-                        constraints.maxWidth >= 700
+                        isTablet
+                            ? 3
+                            : constraints.maxWidth >= 700
                             ? 4
                             : constraints.maxWidth >= 430
                             ? 3
                             : 2;
                     return GridView.builder(
                       key: ValueKey<KapiCosmeticType>(_type),
-                      padding: const EdgeInsets.all(12),
+                      padding: EdgeInsets.fromLTRB(
+                        isTablet ? 22 : 12,
+                        isTablet ? 20 : 12,
+                        isTablet ? 22 : 12,
+                        isTablet ? 28 : 12,
+                      ),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: count,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
+                        crossAxisSpacing: isTablet ? 16 : 10,
+                        mainAxisSpacing: isTablet ? 16 : 10,
                         childAspectRatio:
-                            constraints.maxWidth < 360 ? 0.78 : 0.84,
+                            isTablet
+                                ? (constraints.maxWidth >= 1100 ? 0.72 : 0.68)
+                                : constraints.maxWidth < 360
+                                ? 0.78
+                                : 0.84,
                       ),
                       itemCount: items.length,
                       itemBuilder:
@@ -343,6 +369,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
 
   Widget _tab(KapiCosmeticType type, IconData icon, String label) {
     final selected = _type == type;
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Material(
@@ -352,8 +379,11 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
           borderRadius: BorderRadius.circular(14),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            constraints: const BoxConstraints(minWidth: 72),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            constraints: BoxConstraints(minWidth: isTablet ? 132 : 72),
+            padding: EdgeInsets.symmetric(
+              horizontal: isTablet ? 22 : 12,
+              vertical: isTablet ? 15 : 7,
+            ),
             decoration: BoxDecoration(
               gradient:
                   selected
@@ -384,7 +414,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
               children: [
                 Icon(
                   icon,
-                  size: 20,
+                  size: isTablet ? 34 : 20,
                   color: selected ? _champagneLight : Colors.white60,
                 ),
                 const SizedBox(height: 3),
@@ -392,7 +422,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                   label,
                   style: TextStyle(
                     color: selected ? _champagneLight : Colors.white70,
-                    fontSize: 11,
+                    fontSize: isTablet ? 16 : 11,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -405,6 +435,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
   }
 
   Widget _itemCard(KapiCosmeticsService store, KapiCosmeticItem item) {
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     final owned = store.owns(item);
     final equipped = store.equipped(item.type).id == item.id;
     final canBuy = store.balance >= item.price;
@@ -455,7 +486,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
           splashColor: _champagne.withValues(alpha: .18),
           highlightColor: Colors.white.withValues(alpha: .04),
           child: Padding(
-            padding: const EdgeInsets.all(9),
+            padding: EdgeInsets.all(isTablet ? 17 : 9),
             child: Column(
               children: [
                 Expanded(
@@ -503,6 +534,8 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                           )
                         else if (item.type == KapiCosmeticType.dice)
                           _dicePreview(item)
+                        else if (item.type == KapiCosmeticType.domino)
+                          _dominoPreview(item)
                         else if (item.type == KapiCosmeticType.handTray)
                           _handTrayPreview(item)
                         else
@@ -599,7 +632,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 7),
+                SizedBox(height: isTablet ? 14 : 7),
                 Row(
                   children: [
                     Expanded(
@@ -607,9 +640,9 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                         item.nameFor(Localizations.localeOf(context)),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: isTablet ? 19 : 12,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -622,10 +655,10 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                SizedBox(height: isTablet ? 12 : 6),
                 SizedBox(
                   width: double.infinity,
-                  height: 34,
+                  height: isTablet ? 54 : 34,
                   child: OutlinedButton(
                     onPressed: action,
                     style: OutlinedButton.styleFrom(
@@ -732,15 +765,26 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(15),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [item.primary, item.secondary.withValues(alpha: .72)],
-          ),
+          color: item.primary,
+          image:
+              item.previewAsset == null
+                  ? null
+                  : DecorationImage(
+                    image: AssetImage(item.previewAsset!),
+                    fit: BoxFit.cover,
+                    opacity: .78,
+                  ),
           border: Border.all(
             color: item.secondary.withValues(alpha: .9),
-            width: 1.5,
+            width: 2.2,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: item.secondary.withValues(alpha: .28),
+              blurRadius: 12,
+              spreadRadius: 1,
+            ),
+          ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -771,6 +815,89 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
     );
   }
 
+  Widget _dominoPreview(KapiCosmeticItem item) {
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
+    return Center(
+      child: Transform.scale(
+        scale: isTablet ? 1.45 : 1,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Transform.rotate(angle: -.14, child: _shopDomino(item, 2, 5)),
+            const SizedBox(width: 7),
+            _shopDomino(item, 6, 1),
+            const SizedBox(width: 7),
+            Transform.rotate(angle: .14, child: _shopDomino(item, 3, 4)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _shopDomino(KapiCosmeticItem item, int top, int bottom) {
+    return Container(
+      width: 34,
+      height: 70,
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: item.primary,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: item.secondary.withValues(alpha: .82),
+          width: 1.4,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x88000000),
+            blurRadius: 8,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Expanded(child: _shopDominoPips(top, item.secondary)),
+          Container(
+            height: 1.2,
+            margin: const EdgeInsets.symmetric(vertical: 3),
+            color: item.secondary.withValues(alpha: .75),
+          ),
+          Expanded(child: _shopDominoPips(bottom, item.secondary)),
+        ],
+      ),
+    );
+  }
+
+  Widget _shopDominoPips(int value, Color color) {
+    const positions = <int, List<int>>{
+      1: [4],
+      2: [0, 8],
+      3: [0, 4, 8],
+      4: [0, 2, 6, 8],
+      5: [0, 2, 4, 6, 8],
+      6: [0, 2, 3, 5, 6, 8],
+    };
+    final active = positions[value] ?? const <int>[];
+    return GridView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+      ),
+      itemCount: 9,
+      itemBuilder: (_, index) {
+        return Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: active.contains(index) ? 4.2 : 0,
+            height: active.contains(index) ? 4.2 : 0,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _trayPips(int count, Color color) {
     final pipCount = count.clamp(1, 3).toInt();
     return Row(
@@ -791,10 +918,11 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
   }
 
   Widget _dicePreview(KapiCosmeticItem item) {
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     return Center(
       child: Container(
-        width: 66,
-        height: 66,
+        width: isTablet ? 94 : 66,
+        height: isTablet ? 94 : 66,
         decoration: BoxDecoration(
           color: item.primary,
           borderRadius: BorderRadius.circular(16),
@@ -811,7 +939,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(isTablet ? 17 : 12),
           child: Stack(
             children: [
               for (final alignment in const <Alignment>[
@@ -919,8 +1047,8 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                               ),
                               Text(
                                 _isSpanish
-                                    ? 'Saldo: ${store.balance} monedas'
-                                    : 'Balance: ${store.balance} coins',
+                                    ? 'Saldo: ${store.balance} KC'
+                                    : 'Balance: ${store.balance} KC',
                                 style: const TextStyle(
                                   color: _champagneLight,
                                   fontWeight: FontWeight.w800,

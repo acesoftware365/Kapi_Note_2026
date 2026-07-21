@@ -17,6 +17,7 @@ class TeamsOnlinePlayer {
     required this.points,
     required this.isCpu,
     this.badgeKey = 'flag_none',
+    this.replacedPlayer = false,
   });
 
   final String id;
@@ -26,6 +27,7 @@ class TeamsOnlinePlayer {
   final int points;
   final bool isCpu;
   final String badgeKey;
+  final bool replacedPlayer;
 
   factory TeamsOnlinePlayer.fromMap(Map<String, dynamic> map) =>
       TeamsOnlinePlayer(
@@ -36,6 +38,7 @@ class TeamsOnlinePlayer {
         points: (map['points'] as num?)?.toInt() ?? 0,
         isCpu: map['isCpu'] as bool? ?? false,
         badgeKey: map['badgeKey'] as String? ?? 'flag_none',
+        replacedPlayer: map['replacedPlayer'] as bool? ?? false,
       );
 
   Map<String, dynamic> toMap() => {
@@ -46,16 +49,18 @@ class TeamsOnlinePlayer {
     'points': points,
     'isCpu': isCpu,
     'badgeKey': badgeKey,
+    'replacedPlayer': replacedPlayer,
   };
 
   TeamsOnlinePlayer asCpu(int seat, String gameId) => TeamsOnlinePlayer(
     id: 'CPU-$gameId-$seat',
-    initials: 'CPU ${seat + 1}',
+    initials: initials,
     countryCode: countryCode,
-    avatarKey: 'robot',
+    avatarKey: avatarKey,
     points: points,
     isCpu: true,
-    badgeKey: 'flag_none',
+    badgeKey: badgeKey,
+    replacedPlayer: true,
   );
 }
 
@@ -107,6 +112,45 @@ class TeamsOnlineRoster {
       growable: false,
     );
   }
+
+  static List<TeamsOnlinePlayer?> relativeWaitingSeats({
+    required List<TeamsOnlinePlayer> players,
+    required String currentPlayerId,
+    required String preferredPartnerId,
+  }) {
+    if (players.isEmpty || preferredPartnerId.trim().isEmpty) {
+      return relativeSeats(players: players, currentPlayerId: currentPlayerId);
+    }
+    final preferredKey = identityKey(preferredPartnerId);
+    final host = players.first;
+    final partner = players.cast<TeamsOnlinePlayer?>().firstWhere(
+      (player) => player != null && identityKey(player.id) == preferredKey,
+      orElse: () => null,
+    );
+    final assigned = List<TeamsOnlinePlayer?>.filled(4, null);
+    assigned[0] = host;
+    assigned[2] = partner;
+    final rivals = players.where(
+      (player) =>
+          identityKey(player.id) != identityKey(host.id) &&
+          identityKey(player.id) != preferredKey,
+    );
+    var rivalSeat = 1;
+    for (final rival in rivals) {
+      assigned[rivalSeat] = rival;
+      rivalSeat = 3;
+    }
+    final currentKey = identityKey(currentPlayerId);
+    final currentSeat = assigned.indexWhere(
+      (player) => player != null && identityKey(player.id) == currentKey,
+    );
+    if (currentSeat < 0) return List<TeamsOnlinePlayer?>.filled(4, null);
+    return List<TeamsOnlinePlayer?>.generate(
+      4,
+      (relativeSeat) => assigned[(currentSeat + relativeSeat) % 4],
+      growable: false,
+    );
+  }
 }
 
 class TeamsOnlineLobby {
@@ -115,12 +159,14 @@ class TeamsOnlineLobby {
     required this.status,
     required this.deadlineAt,
     required this.players,
+    required this.preferredPartnerId,
   });
 
   final String id;
   final String status;
   final int deadlineAt;
   final List<TeamsOnlinePlayer> players;
+  final String preferredPartnerId;
 
   int get secondsRemaining => max(
     0,
@@ -135,6 +181,8 @@ class TeamsOnlineLobby {
       id: snapshot.id,
       status: data['status'] as String? ?? 'waiting',
       deadlineAt: (data['deadlineAt'] as num?)?.toInt() ?? 0,
+      preferredPartnerId:
+          (data['preferredPartnerId'] as String? ?? '').toUpperCase(),
       players:
           (data['players'] as List<dynamic>? ?? const [])
               .whereType<Map>()
@@ -306,6 +354,7 @@ class TeamsOnlineService {
   Future<String> createInviteLobby({
     required DominoPlayerProfile profile,
     required int points,
+    required String preferredPartnerId,
   }) async {
     final playerId = profile.publicId.toUpperCase();
     final room = _games.doc();
@@ -325,6 +374,7 @@ class TeamsOnlineService {
         'mode': 'teams2v2',
         'status': 'waiting',
         'invitationOnly': true,
+        'preferredPartnerId': preferredPartnerId.toUpperCase(),
         'players': [player.toMap()],
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMillis': now,
@@ -504,7 +554,7 @@ class TeamsOnlineService {
         final rawPlayers = List<dynamic>.from(data['players'] ?? const []);
         if (rawPlayers.length < 4 && now < deadline) return false;
 
-        final players =
+        var players =
             rawPlayers
                 .whereType<Map>()
                 .map(
@@ -512,6 +562,39 @@ class TeamsOnlineService {
                       TeamsOnlinePlayer.fromMap(Map<String, dynamic>.from(map)),
                 )
                 .toList();
+        final preferredPartnerId = TeamsOnlineRoster.identityKey(
+          data['preferredPartnerId'] as String? ?? '',
+        );
+        if (preferredPartnerId.isNotEmpty && players.isNotEmpty) {
+          final host = players.first;
+          final partnerIndex = players.indexWhere(
+            (player) =>
+                TeamsOnlineRoster.identityKey(player.id) == preferredPartnerId,
+          );
+          final partner =
+              partnerIndex > 0 ? players.removeAt(partnerIndex) : null;
+          players.removeAt(0);
+          final rivals = List<TeamsOnlinePlayer>.from(players);
+          final assigned = List<TeamsOnlinePlayer?>.filled(4, null);
+          assigned[0] = host;
+          assigned[2] = partner;
+          for (final seat in const [1, 3, 2]) {
+            if (assigned[seat] == null && rivals.isNotEmpty) {
+              assigned[seat] = rivals.removeAt(0);
+            }
+          }
+          for (var seat = 0; seat < assigned.length; seat++) {
+            assigned[seat] ??= TeamsOnlinePlayer(
+              id: 'CPU-$gameId-$seat',
+              initials: seat == 2 ? 'Partner CPU' : 'CPU ${seat + 1}',
+              countryCode: 'US',
+              avatarKey: 'robot',
+              points: 0,
+              isCpu: true,
+            );
+          }
+          players = assigned.cast<TeamsOnlinePlayer>();
+        }
         while (players.length < 4) {
           final seat = players.length;
           players.add(

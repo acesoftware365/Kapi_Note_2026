@@ -130,6 +130,12 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   double _playedTileScale = 1.0;
   double _handTileScale = 1.0;
 
+  bool get _isTablet => MediaQuery.sizeOf(context).shortestSide >= 600;
+  double get _effectivePlayedTileScale =>
+      _playedTileScale * (_isTablet ? 1.18 : 1.0);
+  double get _effectiveHandTileScale =>
+      _handTileScale * (_isTablet ? 1.18 : 1.0);
+
   bool get _isOnline => widget.onlineGameId != null;
   bool get _resetAllowed =>
       DominoTeamsCpuScreen.resetAllowedFor(onlineGameId: widget.onlineGameId);
@@ -629,11 +635,13 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     if (_isOnline && player >= 0 && player < _onlinePlayers.length) {
       if (player == 0) return _isSpanish ? 'Tú' : 'You';
       final onlinePlayer = _onlinePlayers[player];
-      if (!onlinePlayer.isCpu) {
+      if (!onlinePlayer.isCpu || onlinePlayer.replacedPlayer) {
         final badge = KapiCosmeticsService.byId(onlinePlayer.badgeKey);
-        return badge.type == KapiCosmeticType.flag && badge.id != 'flag_none'
-            ? '${badge.emoji} ${onlinePlayer.initials}'
-            : onlinePlayer.initials;
+        final identity =
+            badge.type == KapiCosmeticType.flag && badge.id != 'flag_none'
+                ? '${badge.emoji} ${onlinePlayer.initials}'
+                : onlinePlayer.initials;
+        return onlinePlayer.replacedPlayer ? '$identity · CPU' : identity;
       }
       return switch (player) {
         1 => 'CPU R',
@@ -1149,8 +1157,14 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
 
   Future<void> _leaveOnlineMatch() async {
     if (!_isOnline || _leavingOnline) return;
+    final profile = _profile;
+    if (profile == null) return;
     _leavingOnline = true;
     _onlineCpuTimer?.cancel();
+    await PlayerPointsService.applyAbandonmentPenalty(
+      code: profile.code,
+      publicId: profile.publicId,
+    );
     await _onlineService?.replaceWithCpu(
       gameId: widget.onlineGameId!,
       playerId: widget.onlinePlayerId!,
@@ -1158,6 +1172,52 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     if (!mounted) return;
     setState(() => _allowOnlinePop = true);
     Navigator.pushReplacementNamed(context, '/domino-teams-online-lobby');
+  }
+
+  Future<void> _confirmLeaveOnlineMatch() async {
+    if (!_isOnline || _leavingOnline) return;
+    final leave = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (dialogContext) => AlertDialog(
+            backgroundColor: const Color(0xFF101C29),
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(26),
+              side: const BorderSide(color: Color(0xFFFFD36B), width: 1.4),
+            ),
+            title: Text(
+              _isSpanish ? '¿Salir de la partida?' : 'Leave the match?',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            content: Text(
+              _isSpanish
+                  ? 'Una CPU ocupará tu puesto y perderás 30 puntos de ranking.'
+                  : 'A CPU will take your seat and you will lose 30 ranking points.',
+              style: const TextStyle(color: Colors.white70, height: 1.35),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE53935),
+                ),
+                icon: const Icon(Icons.exit_to_app_rounded),
+                label: Text(_isSpanish ? 'Salir (-30)' : 'Leave (-30)'),
+              ),
+            ],
+          ),
+    );
+    if (leave == true && mounted) await _leaveOnlineMatch();
   }
 
   void _showRules() {
@@ -1483,6 +1543,32 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   );
 
   void _showSettingsMenu() {
+    if (_isTablet) {
+      showDialog<void>(
+        context: context,
+        // On iPad the pointer-up event that opens this dialog can also reach
+        // the large modal barrier and dismiss it immediately. Keep the tablet
+        // menu modal until the player uses its explicit close button.
+        barrierDismissible: false,
+        builder:
+            (dialogContext) => Dialog(
+              alignment: Alignment.bottomCenter,
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.fromLTRB(72, 72, 72, 44),
+              child: Material(
+                color: const Color(0xFF101820),
+                elevation: 18,
+                borderRadius: BorderRadius.circular(24),
+                clipBehavior: Clip.antiAlias,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: _settingsMenuContent(dialogContext, showClose: true),
+                ),
+              ),
+            ),
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1490,81 +1576,121 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder:
-          (sheetContext) => SafeArea(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.82,
-              ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.settings_rounded,
-                          color: Color(0xFFFFD36B),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          _isSpanish ? 'Configuración' : 'Settings',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
+      builder: (sheetContext) => _settingsMenuContent(sheetContext),
+    );
+  }
+
+  Widget _settingsMenuContent(
+    BuildContext sheetContext, {
+    bool showClose = false,
+  }) {
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.82,
+        ),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            showClose ? 26 : 18,
+            showClose ? 24 : 18,
+            showClose ? 26 : 18,
+            showClose ? 28 : 22,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.settings_rounded, color: Color(0xFFFFD36B)),
+                  const SizedBox(width: 10),
+                  Text(
+                    _isSpanish ? 'Configuración' : 'Settings',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
                     ),
-                    const SizedBox(height: 16),
-                    const GameAudioControls(compact: true),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        final audio = AudioManager.instance;
-                        if (!audio.sfxEnabled) {
-                          await audio.setSfxEnabled(true);
-                        }
-                        if (audio.sfxVolume < 0.5) {
-                          await audio.setSfxVolume(0.8);
-                        }
-                        await audio.playSfx(AudioAssets.turnNotification);
-                      },
-                      icon: const Icon(Icons.campaign_rounded),
-                      label: Text(
-                        _isSpanish
-                            ? 'Activar y probar sonido'
-                            : 'Enable & test sound',
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Color(0xFFFFD36B)),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(sheetContext);
-                        Navigator.pushNamed(context, '/game-settings');
-                      },
-                      icon: const Icon(Icons.tune_rounded),
-                      label: Text(
-                        _isSpanish
-                            ? 'Configuración del juego'
-                            : 'Game settings',
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                      ),
+                  ),
+                  if (showClose) ...[
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close_rounded),
+                      color: Colors.white70,
+                      tooltip: _isSpanish ? 'Cerrar' : 'Close',
                     ),
                   ],
+                ],
+              ),
+              const SizedBox(height: 16),
+              const GameAudioControls(compact: true),
+              const SizedBox(height: 12),
+              if (_isOnline) ...[
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_confirmLeaveOnlineMatch());
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFE53935),
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.exit_to_app_rounded),
+                  label: Text(_isSpanish ? 'Salir de la sala' : 'Leave room'),
+                ),
+                const SizedBox(height: 8),
+              ],
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final audio = AudioManager.instance;
+                  if (!audio.sfxEnabled) {
+                    await audio.setSfxEnabled(true);
+                  }
+                  if (audio.sfxVolume < 0.5) {
+                    await audio.setSfxVolume(0.8);
+                  }
+                  await audio.playSfx(AudioAssets.turnNotification);
+                },
+                icon: const Icon(Icons.campaign_rounded),
+                label: Text(
+                  _isSpanish
+                      ? 'Activar y probar sonido'
+                      : 'Enable & test sound',
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Color(0xFFFFD36B)),
                 ),
               ),
-            ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(sheetContext);
+                  Navigator.pushNamed(context, '/note-settings');
+                },
+                icon: const Icon(Icons.edit_note_rounded),
+                label: Text(
+                  _isSpanish ? 'Configuración de apuntes' : 'Note settings',
+                ),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(sheetContext);
+                  Navigator.pushNamed(context, '/game-settings');
+                },
+                icon: const Icon(Icons.tune_rounded),
+                label: Text(
+                  _isSpanish ? 'Configuración del juego' : 'Game settings',
+                ),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+              ),
+            ],
           ),
+        ),
+      ),
     );
   }
 
@@ -1606,17 +1732,18 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     if (_isOnline && player >= 0 && player < _onlinePlayers.length) {
       final online = _onlinePlayers[player];
       final cpu = online.isCpu;
+      final replaced = online.replacedPlayer;
       return _TeamsPlayerProfileData(
         player: player,
         name: player == 0 ? online.initials : _playerName(player),
-        publicId: cpu ? 'CPU' : online.id,
-        countryCode: cpu ? 'CPU' : online.countryCode,
+        publicId: cpu && !replaced ? 'CPU' : online.id,
+        countryCode: cpu && !replaced ? 'CPU' : online.countryCode,
         flagEmoji:
-            cpu
+            cpu && !replaced
                 ? '🤖'
                 : (_cosmeticFlagEmoji(online.badgeKey) ??
                     _countryFlag(online.countryCode)),
-        avatarKey: cpu ? 'robot' : online.avatarKey,
+        avatarKey: cpu && !replaced ? 'robot' : online.avatarKey,
         points: online.points,
         isCpu: cpu,
         tiles: _hands[player].length,
@@ -2048,7 +2175,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     return PopScope(
       canPop: !_isOnline || _allowOnlinePop,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _isOnline) unawaited(_leaveOnlineMatch());
+        if (!didPop && _isOnline) unawaited(_confirmLeaveOnlineMatch());
       },
       child: Scaffold(
         backgroundColor: const Color(0xFF071524),
@@ -2059,7 +2186,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
           leading: IconButton(
             onPressed:
                 _isOnline
-                    ? () => unawaited(_leaveOnlineMatch())
+                    ? () => unawaited(_confirmLeaveOnlineMatch())
                     : () => Navigator.maybePop(context),
             icon: const Icon(Icons.arrow_back_rounded),
             tooltip:
@@ -3142,7 +3269,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                   );
                 }
                 final boardScale = min(
-                  1.75 * _playedTileScale,
+                  1.75 * _effectivePlayedTileScale,
                   min(
                     constraints.maxWidth / bounds.width,
                     constraints.maxHeight / bounds.height,
@@ -3465,7 +3592,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     );
     return SizedBox(
       key: const ValueKey('teams-hand-area'),
-      height: (compact ? 74 : 84) * _handTileScale,
+      height: (compact ? 74 : 84) * _effectiveHandTileScale,
       child: Row(
         children: [
           _quickChatProfileButton(compact: compact),
@@ -3498,7 +3625,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                               onTap: () => _playHuman(tile),
                               child: _tileWidget(
                                 tile,
-                                displayScale: _handTileScale,
+                                displayScale: _effectiveHandTileScale,
                               ),
                             ),
                           ),
@@ -3512,7 +3639,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                       ),
                       child: SizedBox(
                         width: constraints.maxWidth,
-                        height: (compact ? 66 : 76) * _handTileScale,
+                        height: (compact ? 66 : 76) * _effectiveHandTileScale,
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.center,

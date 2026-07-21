@@ -20,6 +20,7 @@ void main() {
 
     final store = KapiCosmeticsService();
     await store.load();
+    await store.addTestCoins();
     final premium = PremiumNotifier();
     addTearDown(premium.dispose);
 
@@ -37,10 +38,10 @@ void main() {
     await tester.pump();
 
     expect(find.text('Kapi Shop'), findsOneWidget);
-    expect(find.text('150'), findsOneWidget);
+    expect(find.text('650 KC'), findsOneWidget);
     expect(find.text('Classic table'), findsOneWidget);
     expect(find.text('Blue night'), findsOneWidget);
-    expect(find.text('TEST +500'), findsOneWidget);
+    expect(find.text('TEST +500'), findsNothing);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('Buy'));
@@ -57,17 +58,13 @@ void main() {
     await tester.tap(find.byIcon(Icons.close_rounded));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('TEST +500'));
-    await tester.pump();
-    expect(store.balance, 650);
-
     await tester.tap(find.text('250').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(store.balance, 400);
     expect(store.equipped(KapiCosmeticType.table).id, 'table_night');
-    expect(find.text('400'), findsWidgets);
+    expect(find.text('400 KC'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('Use'));

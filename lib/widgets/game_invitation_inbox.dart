@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-import '../screens/domino_player_profile.dart';
 import '../screens/domino_online_game_screen.dart';
+import '../screens/domino_player_profile.dart';
+import '../screens/simple_lobby/match_found_transition_screen.dart';
 import '../services/block_room_service.dart';
 import '../services/player_points_service.dart';
 import '../services/teams_online_service.dart';
@@ -518,14 +519,47 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
       );
       return;
     }
+    final opponentId = (data['fromId'] as String? ?? '').toUpperCase();
+    final opponentSnapshot =
+        await _db.collection('kapi_lobby_profiles').doc(opponentId).get();
+    final opponentData = opponentSnapshot.data() ?? const <String, dynamic>{};
+    final opponent = DominoPlayerProfile(
+      initials:
+          (opponentData['initials'] as String? ??
+                  data['fromInitials'] as String? ??
+                  'P1')
+              .toUpperCase(),
+      countryCode:
+          (opponentData['countryCode'] as String? ?? 'US').toUpperCase(),
+      code:
+          (opponentData['code'] as String? ??
+                  (opponentId.isEmpty ? '111111' : opponentId.split('.').last))
+              .toUpperCase(),
+      avatarKey: opponentData['avatarKey'] as String? ?? 'person',
+    );
+    final playerPoints = await PlayerPointsService.loadLocalTotalPoints(
+      profile.code,
+    );
+    final opponentPoints = (opponentData['totalPoints'] as num?)?.toInt() ?? 0;
     await invite.reference.update({
       'status': 'accepted',
       'gameId': gameId,
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    widget.navigatorKey.currentState?.pushNamed(
-      '/domino-online',
-      arguments: {'gameId': gameId, 'playerId': profile.publicId},
+    final navigator = widget.navigatorKey.currentState;
+    if (navigator == null) return;
+    await navigator.push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/match-found'),
+        builder:
+            (_) => MatchFoundTransitionScreen(
+              gameId: gameId,
+              player: profile,
+              playerPoints: playerPoints,
+              opponent: opponent,
+              opponentPoints: opponentPoints,
+            ),
+      ),
     );
   }
 

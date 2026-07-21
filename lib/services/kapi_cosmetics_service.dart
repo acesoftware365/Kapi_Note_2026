@@ -390,6 +390,7 @@ class KapiCosmeticsService extends ChangeNotifier {
       primary: Color(0xFFD8C9AE),
       secondary: Color(0xFFD8B765),
       emoji: '▤',
+      previewAsset: 'assets/kapi_shop/trays/tray_classic.png',
     ),
     KapiCosmeticItem(
       id: 'tray_midnight',
@@ -400,6 +401,7 @@ class KapiCosmeticsService extends ChangeNotifier {
       primary: Color(0xFF102D4A),
       secondary: Color(0xFF6CB6FF),
       emoji: '🌙',
+      previewAsset: 'assets/kapi_shop/trays/tray_midnight.png',
     ),
     KapiCosmeticItem(
       id: 'tray_mahogany',
@@ -410,6 +412,7 @@ class KapiCosmeticsService extends ChangeNotifier {
       primary: Color(0xFF5A241B),
       secondary: Color(0xFFE1B45B),
       emoji: '🪵',
+      previewAsset: 'assets/kapi_shop/trays/tray_mahogany.png',
     ),
     KapiCosmeticItem(
       id: 'tray_caribbean',
@@ -420,6 +423,7 @@ class KapiCosmeticsService extends ChangeNotifier {
       primary: Color(0xFF005C64),
       secondary: Color(0xFF48D1C5),
       emoji: '🌊',
+      previewAsset: 'assets/kapi_shop/trays/tray_caribbean.png',
     ),
     KapiCosmeticItem(
       id: 'tray_royal',
@@ -430,6 +434,7 @@ class KapiCosmeticsService extends ChangeNotifier {
       primary: Color(0xFF3E1C66),
       secondary: Color(0xFFE9C66A),
       emoji: '👑',
+      previewAsset: 'assets/kapi_shop/trays/tray_royal.png',
       exclusive: true,
     ),
     KapiCosmeticItem(

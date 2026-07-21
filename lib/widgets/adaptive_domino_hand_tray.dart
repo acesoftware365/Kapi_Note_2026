@@ -67,6 +67,11 @@ class _AdaptiveDominoHandTrayState extends State<AdaptiveDominoHandTray>
           decoration: BoxDecoration(
             borderRadius: radius,
             color: scheme.baseColor,
+            image: DecorationImage(
+              image: AssetImage(_trayTextureAsset(trayId)),
+              fit: BoxFit.cover,
+              opacity: lightSurface ? 0.52 : 0.62,
+            ),
             border: Border.all(
               color: scheme.borderColor,
               width: lightSurface ? 1.6 : 1,
@@ -110,6 +115,9 @@ class _AdaptiveDominoHandTrayState extends State<AdaptiveDominoHandTray>
       },
     );
   }
+
+  String _trayTextureAsset(String trayId) =>
+      'assets/kapi_shop/trays/$trayId.png';
 }
 
 class _HandTrayScheme {

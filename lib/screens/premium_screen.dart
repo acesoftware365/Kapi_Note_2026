@@ -210,6 +210,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
                 context: context,
                 title: isSpanish ? 'Mensual' : 'Monthly',
                 product: monthly,
+                featured: true,
               ),
               const SizedBox(height: 11),
               _buildPremiumPlanButton(
@@ -307,12 +308,21 @@ class _PremiumScreenState extends State<PremiumScreen> {
     final free = [
       isSpanish ? 'Marcador de dominó' : 'Domino scorekeeper',
       isSpanish ? 'Configuración de juego' : 'Game settings',
+      isSpanish ? 'Partidas online y contra CPU' : 'Online and CPU games',
+      isSpanish ? 'Tienda y estilos personalizados' : 'Shop and custom styles',
       isSpanish ? 'Anuncios incluidos' : 'Includes ads',
     ];
     final pro = [
-      isSpanish ? 'Sin anuncios' : 'No ads',
-      isSpanish ? 'Juego sin interrupciones' : 'Play without interruptions',
-      isSpanish ? 'Funciones Pro al estar disponibles' : 'Future Pro features',
+      isSpanish ? 'Sin anuncios en toda la app' : 'No ads anywhere in the app',
+      isSpanish
+          ? 'Juegos y notas sin interrupciones'
+          : 'Uninterrupted games and notes',
+      isSpanish
+          ? 'Acceso a futuras funciones Pro'
+          : 'Access to future Pro features',
+      isSpanish
+          ? 'Restaura tu compra fácilmente'
+          : 'Easily restore your purchase',
       isSpanish ? 'Apoyas una app independiente' : 'Support an independent app',
     ];
     return LayoutBuilder(
@@ -542,6 +552,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
     required BuildContext context,
     required String title,
     required ProductDetails? product,
+    bool featured = false,
   }) {
     final premium = context.watch<PremiumNotifier>();
     final isSpanish = Localizations.localeOf(context).languageCode == 'es';
@@ -560,12 +571,24 @@ class _PremiumScreenState extends State<PremiumScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: _red,
           foregroundColor: Colors.white,
-          disabledBackgroundColor: _surface,
-          disabledForegroundColor: _copy.withValues(alpha: .65),
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          disabledBackgroundColor:
+              featured ? _redDark.withValues(alpha: .72) : _surface,
+          disabledForegroundColor:
+              featured
+                  ? Colors.white.withValues(alpha: .88)
+                  : _copy.withValues(alpha: .65),
+          elevation: featured ? 7 : 0,
+          shadowColor: featured ? _gold.withValues(alpha: .5) : null,
+          side:
+              featured
+                  ? const BorderSide(color: _gold, width: 2)
+                  : BorderSide.none,
+          padding: EdgeInsets.symmetric(vertical: featured ? 18 : 16),
           shape: const StadiumBorder(),
-          textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+          textStyle: TextStyle(
+            fontWeight: FontWeight.w900,
+            fontSize: featured ? 19 : 17,
+          ),
         ),
       ),
     );

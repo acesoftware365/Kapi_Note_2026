@@ -12,7 +12,7 @@ import '../../widgets/anchored_adaptive_banner_ad.dart';
 import '../admob_variable.dart';
 import '../domino_player_profile.dart';
 import '../simple_lobby/simple_friends_screen.dart';
-import 'domino_teams_cpu_screen.dart';
+import 'teams_match_found_transition_screen.dart';
 
 class DominoTeamsOnlineLobbyScreen extends StatefulWidget {
   const DominoTeamsOnlineLobbyScreen({super.key, this.initialGameId});
@@ -159,21 +159,27 @@ class _DominoTeamsOnlineLobbyScreenState
   Future<void> _inviteFriends() async {
     final profile = _profile;
     if (profile == null || _joining) return;
-    final friends = await Navigator.push<List<SimpleLobbyFriend>>(
+    final selection = await Navigator.push<SimpleFriendsSelection>(
       context,
-      MaterialPageRoute<List<SimpleLobbyFriend>>(
+      MaterialPageRoute<SimpleFriendsSelection>(
         settings: const RouteSettings(name: '/teams-invite-friends'),
         builder:
-            (_) => SimpleFriendsScreen(profile: profile, multiSelect: true),
+            (_) => SimpleFriendsScreen(
+              profile: profile,
+              multiSelect: true,
+              choosePartner: true,
+            ),
       ),
     );
-    if (!mounted || friends == null || friends.isEmpty) return;
+    if (!mounted || selection == null || selection.friends.isEmpty) return;
+    final friends = selection.friends;
     setState(() => _joining = true);
     String? createdRoomId;
     try {
       final roomId = await _service.createInviteLobby(
         profile: profile,
         points: _playerPoints,
+        preferredPartnerId: selection.partner.publicId,
       );
       createdRoomId = roomId;
       final batch = FirebaseFirestore.instance.batch();
@@ -186,6 +192,11 @@ class _DominoTeamsOnlineLobbyScreenState
           'fromId': profile.publicId.toUpperCase(),
           'fromInitials': profile.initials,
           'toId': friend.publicId.toUpperCase(),
+          'teamRole':
+              friend.publicId.toUpperCase() ==
+                      selection.partner.publicId.toUpperCase()
+                  ? 'partner'
+                  : 'open',
           'status': 'pending',
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -265,11 +276,12 @@ class _DominoTeamsOnlineLobbyScreenState
     if (!mounted) return;
     await Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: '/domino-teams-online'),
+        settings: const RouteSettings(name: '/teams-match-found'),
         builder:
-            (_) => DominoTeamsCpuScreen(
-              onlineGameId: gameId,
-              onlinePlayerId: profile.publicId,
+            (_) => TeamsMatchFoundTransitionScreen(
+              gameId: gameId,
+              playerId: profile.publicId,
+              players: _lobby?.players ?? const [],
             ),
       ),
     );
@@ -323,9 +335,10 @@ class _DominoTeamsOnlineLobbyScreenState
   Widget build(BuildContext context) {
     final lobby = _lobby;
     final players = lobby?.players ?? const <TeamsOnlinePlayer>[];
-    final relativeSeats = TeamsOnlineRoster.relativeSeats(
+    final relativeSeats = TeamsOnlineRoster.relativeWaitingSeats(
       players: players,
       currentPlayerId: _profile?.publicId ?? '',
+      preferredPartnerId: lobby?.preferredPartnerId ?? '',
     );
     final seconds = lobby?.secondsRemaining ?? 30;
     return PopScope(

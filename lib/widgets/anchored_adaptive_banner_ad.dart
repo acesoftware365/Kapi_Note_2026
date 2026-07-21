@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:provider/provider.dart';
@@ -25,6 +26,13 @@ class AnchoredAdaptiveBannerAd extends StatefulWidget {
 }
 
 class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
+  static const bool _hideForScreenshots = bool.fromEnvironment(
+    'KAPI_HIDE_BANNERS',
+    // Banners are active by default. They can still be hidden temporarily with
+    // --dart-define=KAPI_HIDE_BANNERS=true when clean screenshots are needed.
+    defaultValue: false,
+  );
+
   BannerAd? _bannerAd;
   AdSize? _adSize;
   int? _lastRequestedWidth;
@@ -32,9 +40,18 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
   bool _isLoading = false;
   Timer? _retryTimer;
 
+  bool get _isMobileAdsPlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (_hideForScreenshots || !_isMobileAdsPlatform) {
+      _disposeCurrentAd();
+      return;
+    }
     final premiumNotifier = context.watch<PremiumNotifier>();
     if (premiumNotifier.isPremium) {
       _disposeCurrentAd();
@@ -141,6 +158,12 @@ class _AnchoredAdaptiveBannerAdState extends State<AnchoredAdaptiveBannerAd> {
 
   @override
   Widget build(BuildContext context) {
+    if (_hideForScreenshots || !_isMobileAdsPlatform) {
+      return const AppVersionLabel(
+        padding: EdgeInsets.only(top: 2, bottom: 2),
+        fontSize: 10,
+      );
+    }
     final premiumNotifier = context.watch<PremiumNotifier>();
     if (premiumNotifier.isPremium) {
       return const AppVersionLabel(

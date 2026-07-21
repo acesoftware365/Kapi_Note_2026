@@ -124,6 +124,10 @@ class PlayerAccountService {
     );
   }
 
+  Future<void> sendPasswordResetEmail(String email) {
+    return _auth.sendPasswordResetEmail(email: email.trim().toLowerCase());
+  }
+
   Future<bool> reloadEmailVerification() async {
     await user?.reload();
     final current = _auth.currentUser;

@@ -76,8 +76,13 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        duration: const Duration(seconds: 7),
         content: Text(
-          result.recovered
+          account.requiresEmailVerification
+              ? (_spanish
+                  ? 'Te enviamos un correo de verificación. Si no aparece en tu bandeja de entrada, revisa Spam o Correo no deseado.'
+                  : 'We sent you a verification email. If it is not in your inbox, check Spam or Junk.')
+              : result.recovered
               ? (_spanish
                   ? 'Cuenta recuperada. Tus Kapi Coins y ranking ya están sincronizados.'
                   : 'Account recovered. Your Kapi Coins and ranking are now synced.')
@@ -222,10 +227,43 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          duration: const Duration(seconds: 7),
           content: Text(
             _spanish
-                ? 'Enviamos otro correo de verificación.'
-                : 'Another verification email was sent.',
+                ? 'Enviamos otro correo de verificación. Si no aparece, revisa Spam o Correo no deseado.'
+                : 'Another verification email was sent. If it does not appear, check Spam or Junk.',
+          ),
+        ),
+      );
+    } on FirebaseAuthException catch (error) {
+      if (mounted) _showError(_firebaseMessage(error));
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _resetPassword() async {
+    if (_working) return;
+    final email = _emailController.text.trim();
+    if (!email.contains('@') || !email.contains('.')) {
+      _showError(
+        _spanish
+            ? 'Escribe primero el correo de tu cuenta Kapi Note.'
+            : 'Enter your Kapi Note account email first.',
+      );
+      return;
+    }
+    setState(() => _working = true);
+    try {
+      await PlayerAccountService.instance.sendPasswordResetEmail(email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
+          content: Text(
+            _spanish
+                ? 'Te enviamos un enlace para cambiar tu contraseña. Si no aparece, revisa Spam o Correo no deseado.'
+                : 'We sent you a link to reset your password. If it does not appear, check Spam or Junk.',
           ),
         ),
       );
@@ -250,8 +288,8 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
             : 'That email is already registered. Use “Sign in”.',
       'invalid-credential' || 'wrong-password' || 'user-not-found' =>
         _spanish
-            ? 'Correo o contraseña incorrectos.'
-            : 'Incorrect email or password.',
+            ? 'Correo o contraseña de Kapi Note incorrectos. Para usar iCloud, pulsa “Continuar con Apple”.'
+            : 'Incorrect Kapi Note email or password. To use iCloud, tap “Continue with Apple”.',
       'too-many-requests' =>
         _spanish
             ? 'Demasiados intentos. Espera un momento.'
@@ -423,6 +461,18 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
                             fontSize: 17,
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _spanish
+                              ? 'Si no ves el mensaje, revisa las carpetas Spam o Correo no deseado.'
+                              : 'If you do not see the message, check your Spam or Junk folders.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFFE5CFA5),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
                         const SizedBox(height: 12),
                         _AccountButton(
                           icon: Icons.verified_rounded,
@@ -501,6 +551,17 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
               fontWeight: FontWeight.w900,
             ),
           ),
+          const SizedBox(height: 6),
+          Text(
+            _spanish
+                ? 'Estos campos son para una cuenta Kapi Note. Para entrar con tu cuenta de iCloud, usa “Continuar con Apple” abajo.'
+                : 'These fields are for a Kapi Note account. To sign in with your iCloud account, use “Continue with Apple” below.',
+            style: const TextStyle(
+              color: Color(0xFFBCC1C9),
+              height: 1.3,
+              fontSize: 13,
+            ),
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _emailController,
@@ -549,6 +610,17 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
                     : (_spanish ? 'Entrar' : 'Sign in'),
             onTap: _working ? null : _useEmail,
           ),
+          if (!_createEmailAccount)
+            TextButton.icon(
+              onPressed: _working ? null : _resetPassword,
+              icon: const Icon(Icons.key_rounded, size: 18),
+              label: Text(
+                _spanish
+                    ? '¿Olvidaste tu contraseña?'
+                    : 'Forgot your password?',
+              ),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+            ),
           TextButton(
             onPressed:
                 _working

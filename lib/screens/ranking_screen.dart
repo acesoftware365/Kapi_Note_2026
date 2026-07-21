@@ -22,7 +22,9 @@ class _RankingScreenState extends State<RankingScreen> {
   late final Future<DominoPlayerProfile> _profileFuture = _loadProfile();
   final Stream<QuerySnapshot<Map<String, dynamic>>> _rankingStream =
       FirebaseFirestore.instance
-          .collection('kapi_player_points')
+          .collection('kapi_ranking_seasons')
+          .doc(PlayerPointsService.seasonIdFor())
+          .collection('players')
           .orderBy('totalPoints', descending: true)
           .limit(100)
           .snapshots();
@@ -162,14 +164,39 @@ class _RankingScreenState extends State<RankingScreen> {
                                   children: [
                                     Text(
                                       _isSpanish
-                                          ? 'Solo partidas contra amigos'
-                                          : 'Friends matches only',
+                                          ? 'Temporada mensual · reinicia el dia 1'
+                                          : 'Monthly season · resets on day 1',
                                       style: TextStyle(
                                         color: Colors.white.withValues(
                                           alpha: 0.72,
                                         ),
                                         fontSize: isTablet ? 16 : 13,
                                         fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    OutlinedButton.icon(
+                                      onPressed: _showPastMonths,
+                                      icon: const Icon(
+                                        Icons.emoji_events_rounded,
+                                      ),
+                                      label: Text(
+                                        _isSpanish
+                                            ? 'Top 3 de meses pasados'
+                                            : 'Past months top 3',
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(
+                                          0xFFFFD36B,
+                                        ),
+                                        side: BorderSide(
+                                          color: const Color(
+                                            0xFFFFD36B,
+                                          ).withValues(alpha: 0.64),
+                                        ),
+                                        textStyle: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(height: 10),
@@ -202,6 +229,222 @@ class _RankingScreenState extends State<RankingScreen> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _seasonLabel(String seasonId) {
+    final parts = seasonId.split('-');
+    final year = int.tryParse(parts.first) ?? DateTime.now().year;
+    final month = int.tryParse(parts.length > 1 ? parts[1] : '') ?? 1;
+    return MaterialLocalizations.of(
+      context,
+    ).formatMonthYear(DateTime(year, month));
+  }
+
+  void _showPastMonths() {
+    final seasons = PlayerPointsService.previousSeasonIds(count: 12);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0B1E2D),
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder:
+          (sheetContext) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _isSpanish
+                        ? 'Ganadores de meses pasados'
+                        : 'Past monthly winners',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _isSpanish
+                        ? 'Elige un mes para ver sus tres primeros lugares.'
+                        : 'Choose a month to see its top three players.',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.68),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: seasons.length,
+                      separatorBuilder:
+                          (_, __) => Divider(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                      itemBuilder: (context, index) {
+                        final seasonId = seasons[index];
+                        return ListTile(
+                          leading: const Icon(
+                            Icons.calendar_month_rounded,
+                            color: Color(0xFFFFD36B),
+                          ),
+                          title: Text(
+                            _seasonLabel(seasonId),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: Colors.white70,
+                          ),
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            _showSeasonPodium(seasonId);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
+  }
+
+  Future<void> _showSeasonPodium(String seasonId) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (_) => const Center(
+            child: CircularProgressIndicator(color: Color(0xFFFFD36B)),
+          ),
+    );
+    List<_RankingEntry> entries = const [];
+    try {
+      final snapshot =
+          await FirebaseFirestore.instance
+              .collection('kapi_ranking_seasons')
+              .doc(seasonId)
+              .collection('players')
+              .orderBy('totalPoints', descending: true)
+              .limit(3)
+              .get();
+      entries = [
+        for (var i = 0; i < snapshot.docs.length; i++)
+          _RankingEntry.fromFirestore(snapshot.docs[i]).copyWith(rank: i + 1),
+      ];
+    } catch (_) {
+      entries = const [];
+    }
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    showDialog<void>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            backgroundColor: const Color(0xFF101820),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+              side: const BorderSide(color: Color(0xFFFFD36B)),
+            ),
+            title: Column(
+              children: [
+                const Icon(
+                  Icons.emoji_events_rounded,
+                  color: Color(0xFFFFD36B),
+                  size: 42,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _seasonLabel(seasonId),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            content:
+                entries.isEmpty
+                    ? Text(
+                      _isSpanish
+                          ? 'Todavia no hay resultados guardados para este mes.'
+                          : 'There are no saved results for this month yet.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.76),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    )
+                    : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final entry in entries) _buildPodiumRow(entry),
+                      ],
+                    ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(_isSpanish ? 'Cerrar' : 'Close'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  Widget _buildPodiumRow(_RankingEntry entry) {
+    const colors = <Color>[
+      Color(0xFFFFD36B),
+      Color(0xFFC7D0D9),
+      Color(0xFFCD8B55),
+    ];
+    final color = colors[(entry.rank - 1).clamp(0, 2)];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.72)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: color,
+            foregroundColor: const Color(0xFF101820),
+            child: Text(
+              '${entry.rank}',
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              entry.id,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          Text(
+            '${entry.points} pts',
+            style: TextStyle(color: color, fontWeight: FontWeight.w900),
           ),
         ],
       ),
@@ -536,8 +779,8 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
             content: Text(
               _isSpanish
-                  ? 'El ranking se ordena por puntos. Ganar suma puntos y una racha ayuda a subir mas rapido. Perder resta puntos con una penalidad mas fuerte para que la tabla se mueva. Las partidas contra CPU son practica y no deben decidir el ranking competitivo.'
-                  : 'Ranking is ordered by points. Wins add points, and a streak helps you climb faster. Losses subtract points with a stronger penalty so the table keeps moving. CPU games are practice and should not decide the competitive ranking.',
+                  ? 'El ranking comienza desde cero el dia 1 de cada mes. Ganar suma puntos y perder resta puntos. Los tres primeros lugares quedan guardados en el historial de meses pasados. Las partidas contra CPU son practica y no deciden el ranking competitivo.'
+                  : 'Ranking starts from zero on the first day of every month. Wins add points and losses subtract points. The top three remain saved in past-month history. CPU games are practice and do not decide competitive ranking.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.82),
                 height: 1.35,

@@ -2821,9 +2821,7 @@ class _OnlineBoard extends StatelessWidget {
               Positioned(
                 left: preview.position.dx,
                 top: preview.position.dy,
-                child: GestureDetector(
-                  onTap: () => onSideSelected?.call(preview.side),
-                  behavior: HitTestBehavior.opaque,
+                child: IgnorePointer(
                   child: AnimatedBuilder(
                     animation:
                         sideChoicePulse ?? const AlwaysStoppedAnimation(0.5),
@@ -2855,12 +2853,35 @@ class _OnlineBoard extends StatelessWidget {
         );
         if (previews.isEmpty) return content;
         return ClipRect(
-          child: Transform.translate(
-            offset: fitOffset,
-            child: Transform.scale(
-              alignment: Alignment.topLeft,
-              scale: fitScale,
-              child: content,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (details) {
+              for (final preview in previews) {
+                final previewSize =
+                    _drawSize(
+                      Size(tileShort, tileLong),
+                      preview.position.vertical,
+                    ) *
+                    preview.position.scaleFactor;
+                final hitRect = Rect.fromLTWH(
+                  fitOffset.dx + preview.position.dx * fitScale,
+                  fitOffset.dy + preview.position.dy * fitScale,
+                  previewSize.width * fitScale,
+                  previewSize.height * fitScale,
+                ).inflate(16);
+                if (hitRect.contains(details.localPosition)) {
+                  onSideSelected?.call(preview.side);
+                  return;
+                }
+              }
+            },
+            child: Transform.translate(
+              offset: fitOffset,
+              child: Transform.scale(
+                alignment: Alignment.topLeft,
+                scale: fitScale,
+                child: content,
+              ),
             ),
           ),
         );

@@ -406,7 +406,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '${store.balance} GP',
+                      '${store.balance} KC',
                       style: const TextStyle(
                         color: Color(0xFFF1D99C),
                         fontSize: 11,

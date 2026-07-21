@@ -127,7 +127,19 @@ class _GameScreenState extends State<GameScreen>
       barrierDismissible: false, // User must tap button to close
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(dialogTitle),
+          backgroundColor: _notesPanel,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: const BorderSide(color: _notesGold, width: 1.5),
+          ),
+          title: Text(
+            dialogTitle,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
           content: SingleChildScrollView(
             child: ListBody(
               children: <Widget>[
@@ -137,16 +149,31 @@ class _GameScreenState extends State<GameScreen>
                   textInputAction: TextInputAction.done,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   textAlign: TextAlign.center,
-                  style:
-                      Theme.of(
-                        context,
-                      ).textTheme.bodyMedium, // Adapt text color and size
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
                   decoration: InputDecoration(
                     hintText: hintText,
-                    hintStyle:
-                        Theme.of(context)
-                            .textTheme
-                            .bodyMedium, // Adapt hint text color and size
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    filled: true,
+                    fillColor: _notesNavy,
+                    prefixIcon: const Icon(
+                      Icons.calculate_rounded,
+                      color: _notesGold,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Colors.white24),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: _notesGold,
+                        width: 1.5,
+                      ),
+                    ),
                   ),
                   onSubmitted: (_) {
                     setState(() {
@@ -156,10 +183,22 @@ class _GameScreenState extends State<GameScreen>
                           context: context,
                           builder: (BuildContext innerDialogContext) {
                             return AlertDialog(
-                              content: Text(appLocalizations.noMoreThan200),
+                              backgroundColor: _notesPanel,
+                              surfaceTintColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(22),
+                                side: const BorderSide(color: _notesGold),
+                              ),
+                              content: Text(
+                                appLocalizations.noMoreThan200,
+                                style: const TextStyle(color: Colors.white),
+                              ),
                               actions: <Widget>[
                                 TextButton(
-                                  child: const Text("OK"),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: _notesGold,
+                                  ),
+                                  child: const Text('OK'),
                                   onPressed: () {
                                     pointsController.clear();
                                     Navigator.of(innerDialogContext).pop();
@@ -187,12 +226,14 @@ class _GameScreenState extends State<GameScreen>
           ),
           actions: <Widget>[
             TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
               child: Text(appLocalizations.cancel),
               onPressed: () {
                 Navigator.of(context).pop();
               },
             ),
             TextButton(
+              style: TextButton.styleFrom(foregroundColor: _notesGold),
               child: Text(appLocalizations.add),
               onPressed: () {
                 setState(() {
@@ -207,9 +248,21 @@ class _GameScreenState extends State<GameScreen>
                       builder: (BuildContext innerDialogContext) {
                         // This context is for the new dialog
                         return AlertDialog(
-                          content: Text(appLocalizations.noMoreThan200),
+                          backgroundColor: _notesPanel,
+                          surfaceTintColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(22),
+                            side: const BorderSide(color: _notesGold),
+                          ),
+                          content: Text(
+                            appLocalizations.noMoreThan200,
+                            style: const TextStyle(color: Colors.white),
+                          ),
                           actions: <Widget>[
                             TextButton(
+                              style: TextButton.styleFrom(
+                                foregroundColor: _notesGold,
+                              ),
                               child: const Text(
                                 "OK",
                               ), // Using a plain string "OK"
@@ -346,23 +399,122 @@ class _GameScreenState extends State<GameScreen>
   Future<void> _confirmResetGame() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder:
-          (dialogContext) => AlertDialog(
-            title: const Text('Reset all scores?'),
-            content: const Text(
-              'This will remove every score for both teams and cannot be undone.',
+      barrierColor: Colors.black.withValues(alpha: .76),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 26),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_notesPanel, _notesNavy],
+              ),
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(color: _notesGold, width: 1.5),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x99000000),
+                  blurRadius: 28,
+                  offset: Offset(0, 14),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Reset'),
-              ),
-            ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: _notesRed.withValues(alpha: .16),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _notesRed.withValues(alpha: .8),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.restart_alt_rounded,
+                        color: _notesRed,
+                        size: 29,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Text(
+                        'Reset all scores?',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'This will remove every score for both teams and cannot be undone.',
+                  style: TextStyle(
+                    color: Color(0xFFC3CAD2),
+                    fontSize: 16,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: BorderSide(
+                            color: Colors.white.withValues(alpha: .5),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => Navigator.of(dialogContext).pop(true),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _notesRed,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        icon: const Icon(Icons.delete_sweep_rounded, size: 19),
+                        label: const Text(
+                          'Reset',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
+        );
+      },
     );
 
     if (confirmed == true && mounted) {
@@ -395,16 +547,51 @@ class _GameScreenState extends State<GameScreen>
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(appLocalizations.changeTeamName), // Localized title
+          backgroundColor: _notesPanel,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: const BorderSide(color: _notesGold, width: 1.5),
+          ),
+          title: Text(
+            appLocalizations.changeTeamName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
           content: SingleChildScrollView(
             child: ListBody(
               children: <Widget>[
                 TextField(
                   controller: nameController,
                   textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
                   decoration: InputDecoration(
                     hintText:
                         appLocalizations.enterNewTeamName, // Localized hint
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    filled: true,
+                    fillColor: _notesNavy,
+                    prefixIcon: const Icon(
+                      Icons.groups_rounded,
+                      color: _notesGold,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Colors.white24),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: _notesGold,
+                        width: 1.5,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -412,12 +599,14 @@ class _GameScreenState extends State<GameScreen>
           ),
           actions: <Widget>[
             TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
               child: Text(appLocalizations.cancel),
               onPressed: () {
                 Navigator.of(context).pop();
               },
             ),
             TextButton(
+              style: TextButton.styleFrom(foregroundColor: _notesGold),
               child: Text(appLocalizations.save), // Localized save button
               onPressed: () {
                 onNameChanged(nameController.text);

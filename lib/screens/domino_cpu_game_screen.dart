@@ -886,20 +886,67 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       context: context,
       builder:
           (dialogContext) => AlertDialog(
-            title: Text(_isSpanish ? 'Terminar partida' : 'End game'),
+            backgroundColor: const Color(0xFF101C29),
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(26),
+              side: const BorderSide(color: _gold, width: 1.5),
+            ),
+            title: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: const Color(0x33E53935),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0x88EF5350)),
+                  ),
+                  child: const Icon(
+                    Icons.exit_to_app_rounded,
+                    color: Color(0xFFFF7B74),
+                  ),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Text(
+                    _isSpanish ? 'Terminar partida' : 'End game',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             content: Text(
               _isSpanish
-                  ? 'Se perdera el progreso de esta partida contra CPU.'
+                  ? 'Se perderá el progreso de esta partida contra CPU.'
                   : 'Progress in this CPU match will be lost.',
+              style: const TextStyle(
+                color: Color(0xFFC6CED8),
+                fontSize: 16,
+                height: 1.35,
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
+                style: TextButton.styleFrom(foregroundColor: Colors.white70),
                 child: Text(_isSpanish ? 'Cancelar' : 'Cancel'),
               ),
-              FilledButton(
+              FilledButton.icon(
                 onPressed: () => Navigator.pop(dialogContext, true),
-                child: Text(_isSpanish ? 'Terminar' : 'End game'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE53935),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                ),
+                icon: const Icon(Icons.stop_circle_rounded, size: 19),
+                label: Text(_isSpanish ? 'Terminar' : 'End game'),
               ),
             ],
           ),

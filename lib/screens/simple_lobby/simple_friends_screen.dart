@@ -25,17 +25,26 @@ class SimpleLobbyFriend {
   final bool online;
 }
 
+class SimpleFriendsSelection {
+  const SimpleFriendsSelection({required this.friends, required this.partner});
+
+  final List<SimpleLobbyFriend> friends;
+  final SimpleLobbyFriend partner;
+}
+
 class SimpleFriendsScreen extends StatefulWidget {
   const SimpleFriendsScreen({
     super.key,
     required this.profile,
     this.multiSelect = false,
     this.maxSelections = 12,
+    this.choosePartner = false,
   });
 
   final DominoPlayerProfile profile;
   final bool multiSelect;
   final int maxSelections;
+  final bool choosePartner;
 
   @override
   State<SimpleFriendsScreen> createState() => _SimpleFriendsScreenState();
@@ -45,6 +54,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
   bool _onlineExpanded = true;
   bool _offlineExpanded = true;
   final Map<String, SimpleLobbyFriend> _selected = {};
+  String? _partnerId;
   Timer? _refreshTimer;
 
   @override
@@ -93,17 +103,38 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                   child: FilledButton.icon(
                     onPressed:
-                        _selected.isEmpty
+                        _selected.isEmpty ||
+                                (widget.choosePartner && _partnerId == null)
                             ? null
-                            : () => Navigator.pop(
-                              context,
-                              _selected.values.toList(growable: false),
-                            ),
-                    icon: const Icon(Icons.send_rounded),
+                            : () {
+                              final friends = _selected.values.toList(
+                                growable: false,
+                              );
+                              if (widget.choosePartner) {
+                                Navigator.pop(
+                                  context,
+                                  SimpleFriendsSelection(
+                                    friends: friends,
+                                    partner: _selected[_partnerId]!,
+                                  ),
+                                );
+                              } else {
+                                Navigator.pop(context, friends);
+                              }
+                            },
+                    icon: Icon(
+                      widget.choosePartner
+                          ? Icons.groups_rounded
+                          : Icons.send_rounded,
+                    ),
                     label: Text(
-                      _isSpanish(context)
-                          ? 'Invitar (${_selected.length})'
-                          : 'Invite (${_selected.length})',
+                      widget.choosePartner
+                          ? (_isSpanish(context)
+                              ? 'Invitar con compañero (${_selected.length})'
+                              : 'Invite with partner (${_selected.length})')
+                          : (_isSpanish(context)
+                              ? 'Invitar (${_selected.length})'
+                              : 'Invite (${_selected.length})'),
                     ),
                   ),
                 ),
@@ -828,9 +859,31 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
       trailing:
           enabled
               ? widget.multiSelect
-                  ? Checkbox(
-                    value: _selected.containsKey(friend.publicId),
-                    onChanged: (_) => _toggleSelection(friend),
+                  ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.choosePartner)
+                        IconButton(
+                          tooltip:
+                              _isSpanish(context)
+                                  ? 'Elegir como compañero'
+                                  : 'Choose as partner',
+                          onPressed: () => _choosePartner(friend),
+                          icon: Icon(
+                            _partnerId == friend.publicId
+                                ? Icons.star_rounded
+                                : Icons.star_border_rounded,
+                            color:
+                                _partnerId == friend.publicId
+                                    ? const Color(0xFFFFD36B)
+                                    : Colors.white54,
+                          ),
+                        ),
+                      Checkbox(
+                        value: _selected.containsKey(friend.publicId),
+                        onChanged: (_) => _toggleSelection(friend),
+                      ),
+                    ],
                   )
                   : FilledButton.icon(
                     onPressed: () => Navigator.pop(context, friend),
@@ -865,7 +918,10 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
   void _toggleSelection(SimpleLobbyFriend friend) {
     if (!friend.online) return;
     setState(() {
-      if (_selected.remove(friend.publicId) != null) return;
+      if (_selected.remove(friend.publicId) != null) {
+        if (_partnerId == friend.publicId) _partnerId = null;
+        return;
+      }
       if (_selected.length >= widget.maxSelections) {
         _showMessage(
           _isSpanish(context)
@@ -875,6 +931,17 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
         return;
       }
       _selected[friend.publicId] = friend;
+      if (widget.choosePartner && _partnerId == null) {
+        _partnerId = friend.publicId;
+      }
+    });
+  }
+
+  void _choosePartner(SimpleLobbyFriend friend) {
+    if (!friend.online) return;
+    setState(() {
+      _selected[friend.publicId] = friend;
+      _partnerId = friend.publicId;
     });
   }
 }
