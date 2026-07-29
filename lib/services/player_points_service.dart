@@ -119,6 +119,7 @@ class PlayerPointsService {
     required String code,
     required String publicId,
     required String initials,
+    String? displayName,
     required String countryCode,
   }) async {
     final cleanCode = code.toUpperCase();
@@ -145,6 +146,8 @@ class PlayerPointsService {
           'hashtag': '#$cleanCode',
           'publicId': publicId.toUpperCase(),
           'initials': initials.toUpperCase(),
+          if (displayName?.trim().isNotEmpty ?? false)
+            'displayName': displayName!.trim(),
           'countryCode': countryCode.toUpperCase(),
           'updatedAt': FieldValue.serverTimestamp(),
           'seasonId': seasonId,
@@ -185,6 +188,7 @@ class PlayerPointsService {
     required String code,
     required String publicId,
     required String initials,
+    String? displayName,
     required String countryCode,
     required String mode,
     required int pointsEarned,
@@ -229,6 +233,8 @@ class PlayerPointsService {
           'hashtag': hashtag,
           'publicId': publicId.toUpperCase(),
           'initials': initials.toUpperCase(),
+          if (displayName?.trim().isNotEmpty ?? false)
+            'displayName': displayName!.trim(),
           'countryCode': countryCode.toUpperCase(),
           'lastMode': mode,
           'totalPoints': (currentPoints + pointsEarned).clamp(0, 1 << 30),

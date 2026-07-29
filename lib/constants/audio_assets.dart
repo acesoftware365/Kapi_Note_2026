@@ -9,6 +9,9 @@ class AudioAssets {
 
   static const buttonTap = 'sfx_for_game/button_tap.wav';
   static const dominoPlace = 'sfx_for_game/domino_place.wav';
+  static const dominoLastTile = 'sfx_for_game/domino_last_tile.wav';
+  static const dominoPass = 'sfx_for_game/domino_pass.wav';
+  static const dominoBlocked = 'sfx_for_game/domino_blocked.wav';
   static const dominoShuffle = 'sfx_for_game/domino_shuffle.wav';
   static const dominoDraw = 'sfx_for_game/domino_draw.wav';
   static const dominoDouble = 'sfx_for_game/domino_double.wav';
@@ -39,6 +42,9 @@ class AudioAssets {
   static const soundEffects = <String, String>{
     'Button Tap': buttonTap,
     'Domino Place': dominoPlace,
+    'Domino Last Tile': dominoLastTile,
+    'Domino Pass': dominoPass,
+    'Domino Blocked': dominoBlocked,
     'Domino Shuffle': dominoShuffle,
     'Domino Draw': dominoDraw,
     'Domino Double': dominoDouble,

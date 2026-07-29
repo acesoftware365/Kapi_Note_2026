@@ -42,6 +42,7 @@ class _RankingScreenState extends State<RankingScreen> {
       code: profile.code,
       publicId: profile.publicId,
       initials: profile.initials,
+      displayName: profile.effectiveDisplayName,
       countryCode: profile.countryCode,
     );
     return profile;
@@ -434,7 +435,7 @@ class _RankingScreenState extends State<RankingScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              entry.id,
+              entry.displayName,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: Colors.white,
@@ -702,7 +703,7 @@ class _RankingScreenState extends State<RankingScreen> {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  entry.id,
+                  entry.displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -711,6 +712,29 @@ class _RankingScreenState extends State<RankingScreen> {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
+                if (entry.macPro)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.workspace_premium_rounded,
+                          color: Color(0xFFFFD36B),
+                          size: 15,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'PRO',
+                          style: TextStyle(
+                            color: Color(0xFFFFD36B),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 4),
                 Wrap(
                   spacing: 7,
@@ -779,8 +803,8 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
             content: Text(
               _isSpanish
-                  ? 'El ranking comienza desde cero el dia 1 de cada mes. Ganar suma puntos y perder resta puntos. Los tres primeros lugares quedan guardados en el historial de meses pasados. Las partidas contra CPU son practica y no deciden el ranking competitivo.'
-                  : 'Ranking starts from zero on the first day of every month. Wins add points and losses subtract points. The top three remain saved in past-month history. CPU games are practice and do not decide competitive ranking.',
+                  ? 'El ranking comienza desde cero el dia 1 de cada mes. Ganar suma puntos y perder resta puntos. Los tres primeros lugares quedan guardados en el historial de meses pasados. Las partidas online competitivas deciden el ranking.'
+                  : 'Ranking starts from zero on the first day of every month. Wins add points and losses subtract points. The top three remain saved in past-month history. Competitive online matches decide the ranking.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.82),
                 height: 1.35,
@@ -866,7 +890,7 @@ class _RankingScreenState extends State<RankingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  entry.id,
+                  entry.displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -973,23 +997,27 @@ class _RankingEntry {
     required this.rank,
     required this.code,
     required this.id,
+    required this.displayName,
     required this.points,
     required this.tier,
     required this.mode,
     required this.wins,
     required this.losses,
     required this.streak,
+    this.macPro = false,
   });
 
   final int rank;
   final String code;
   final String id;
+  final String displayName;
   final int points;
   final String tier;
   final String mode;
   final int wins;
   final int losses;
   final int streak;
+  final bool macPro;
 
   static Future<_RankingEntry> fromLocal(
     DominoPlayerProfile profile, {
@@ -1006,6 +1034,7 @@ class _RankingEntry {
       rank: rank,
       code: profile.code,
       id: profile.publicId.toUpperCase(),
+      displayName: profile.effectiveDisplayName,
       points: points,
       tier: _tierForPoints(points),
       mode: 'Block',
@@ -1024,6 +1053,7 @@ class _RankingEntry {
       rank: rank,
       code: profile.code,
       id: profile.publicId.toUpperCase(),
+      displayName: profile.effectiveDisplayName,
       points: 0,
       tier: rank > 0 ? 'Iron' : 'Unranked',
       mode: mode,
@@ -1044,16 +1074,29 @@ class _RankingEntry {
     final losses =
         storedLosses == 0 && rounds > wins ? rounds - wins : storedLosses;
     final code = _stringValue(data['code'], doc.id).toUpperCase();
+    final initials =
+        _stringValue(
+          data['initials'],
+          _stringValue(data['publicId'], code).split('.').first,
+        ).toUpperCase();
+    final savedDisplayName = DominoPlayerProfile.normalizeDisplayName(
+      _stringValue(data['displayName'], ''),
+    );
     return _RankingEntry(
       rank: 0,
       code: code,
       id: _stringValue(data['publicId'], code).toUpperCase(),
+      displayName:
+          DominoPlayerProfile.isValidDisplayName(savedDisplayName)
+              ? savedDisplayName
+              : initials,
       points: points,
       tier: _tierForPoints(points),
       mode: _modeLabel(_stringValue(data['lastMode'], 'classic')),
       wins: wins,
       losses: losses,
       streak: _intValue(data['currentStreak']),
+      macPro: data['macPro'] == true,
     );
   }
 
@@ -1062,12 +1105,14 @@ class _RankingEntry {
       rank: rank ?? this.rank,
       code: code,
       id: id,
+      displayName: displayName,
       points: points,
       tier: tier,
       mode: mode,
       wins: wins,
       losses: losses,
       streak: streak,
+      macPro: macPro,
     );
   }
 

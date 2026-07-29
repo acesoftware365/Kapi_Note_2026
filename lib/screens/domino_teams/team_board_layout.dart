@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/team_domino_chain_validator.dart';
 
-/// A deterministic, opening-anchored domino path used by Teams 2 vs 2.
+/// A deterministic domino path used by Teams 2 vs 2.
 ///
 /// Both arms grow away from the opening tile in separate regions of the
 /// table. The opening lane uses three tiles on each side of the opening tile,
@@ -19,11 +19,281 @@ class TeamBoardLayoutEngine {
     this.longRunLength = 3,
     this.connectorRunLength = 2,
     this.edgeRunLength = 6,
+    this.leftLongRunLength,
+    this.rightLongRunLength,
+    this.leftConnectorRunLength,
+    this.rightConnectorRunLength,
   });
 
   final int longRunLength;
   final int connectorRunLength;
   final int edgeRunLength;
+  final int? leftLongRunLength;
+  final int? rightLongRunLength;
+  final int? leftConnectorRunLength;
+  final int? rightConnectorRunLength;
+
+  /// Keeps portrait-phone chains from becoming one long line before they use
+  /// the free space above and below the opening tile.
+  static int responsiveLongRunLengthForWidth(
+    double viewportWidth, {
+    bool startsHorizontally = false,
+  }) {
+    if (viewportWidth < 600 && startsHorizontally) return 1;
+    if (viewportWidth < 600) return 2;
+    return 3;
+  }
+
+  /// Uses the taller phone table before consuming its limited center width.
+  ///
+  /// A horizontal opening otherwise reaches a six-tile cross-table lane very
+  /// early and forces every domino to shrink while large areas above and below
+  /// the chain are still empty.
+  static int responsiveEdgeRunLengthForWidth(
+    double viewportWidth, {
+    bool startsHorizontally = false,
+  }) {
+    if (viewportWidth < 600 && startsHorizontally) return 4;
+    if (viewportWidth < 600) return 7;
+    return 6;
+  }
+
+  /// Returns the largest uniform scale that fits [bounds] in [availableSize].
+  ///
+  /// [visualMargin] is measured after scaling, so a large domino does not
+  /// accidentally multiply the intended screen-edge padding.
+  static double fitScale({
+    required Rect bounds,
+    required Size availableSize,
+    required double preferredScale,
+    double visualMargin = 6,
+  }) {
+    if (bounds.isEmpty || bounds.width <= 0 || bounds.height <= 0) {
+      return preferredScale;
+    }
+    final safeWidth = max(1.0, availableSize.width - visualMargin * 2);
+    final safeHeight = max(1.0, availableSize.height - visualMargin * 2);
+    return min(
+      preferredScale,
+      min(safeWidth / bounds.width, safeHeight / bounds.height),
+    );
+  }
+
+  /// Fits and centers the complete visible chain in the available area.
+  ///
+  /// The opening tile starts centered when it is alone. As either arm grows,
+  /// the complete composition can move so the dominoes use all free space
+  /// before their size is reduced.
+  static ({double scale, Offset translation}) centeredFit({
+    required Rect bounds,
+    required Size availableSize,
+    required double preferredScale,
+    double visualMargin = 6,
+  }) {
+    final scale = fitScale(
+      bounds: bounds,
+      availableSize: availableSize,
+      preferredScale: preferredScale,
+      visualMargin: visualMargin,
+    );
+    final translation =
+        availableSize.center(Offset.zero) - bounds.center * scale;
+    return (scale: scale, translation: translation);
+  }
+
+  /// Chooses independent runs for both arms so the chain uses the available
+  /// table before its dominoes are reduced. This is recalculated after every
+  /// play, allowing a short arm to keep travelling straight while the longer
+  /// arm folds earlier.
+  static ({TeamBoardLayoutEngine engine, List<TeamBoardPlacement> placements})
+  bestFit({
+    required List<TeamBoardTileSpec> board,
+    required int openingIndex,
+    required bool openingVertical,
+    required bool startsHorizontally,
+    required Size availableSize,
+    required double preferredScale,
+    required int baseLongRunLength,
+    int connectorRunLength = 2,
+    int edgeRunLength = 6,
+    int maxLongRunLength = 5,
+    double visualMargin = 6,
+  }) {
+    final leftTileCount = openingIndex;
+    final rightTileCount = board.length - openingIndex - 1;
+    final leftMaximum = max(
+      baseLongRunLength,
+      min(maxLongRunLength, max(1, leftTileCount)),
+    );
+    final rightMaximum = max(
+      baseLongRunLength,
+      min(maxLongRunLength, max(1, rightTileCount)),
+    );
+    final connectorMinimum = startsHorizontally ? 1 : connectorRunLength;
+    const comparisonTolerance = 0.000001;
+
+    bool validPlacements(List<TeamBoardPlacement> placements) {
+      if (!debugValidatePlacements(placements, const Size(30, 54), false)) {
+        return false;
+      }
+      return !board.every((tile) => tile.left != null && tile.right != null) ||
+          validateVisualConnections(
+            board: board,
+            placements: placements,
+            openingIndex: openingIndex,
+          );
+    }
+
+    // On a mature horizontal chain, balance the two arms before exploring
+    // generic candidates. The shorter arm can use four open positions while
+    // the longer arm folds after two; a one-tile connector then sends the
+    // chain back across the table. Keep this route only when it is at least as
+    // large as the previous symmetric 3/3 layout.
+    if (startsHorizontally &&
+        board.length >= 12 &&
+        leftTileCount >= 4 &&
+        rightTileCount >= 4 &&
+        leftTileCount != rightTileCount) {
+      final rightIsShorter = rightTileCount < leftTileCount;
+      final balancedEngine = TeamBoardLayoutEngine(
+        longRunLength: baseLongRunLength,
+        connectorRunLength: connectorRunLength,
+        edgeRunLength: edgeRunLength,
+        leftLongRunLength: rightIsShorter ? 2 : 4,
+        rightLongRunLength: rightIsShorter ? 4 : 2,
+        leftConnectorRunLength: rightIsShorter ? connectorRunLength : 1,
+        rightConnectorRunLength: rightIsShorter ? 1 : connectorRunLength,
+      );
+      final balancedPlacements = balancedEngine.build(
+        board: board,
+        openingIndex: openingIndex,
+        openingVertical: openingVertical,
+        startsHorizontally: startsHorizontally,
+      );
+      final referenceEngine = TeamBoardLayoutEngine(
+        longRunLength: max(3, baseLongRunLength),
+        connectorRunLength: connectorRunLength,
+        edgeRunLength: edgeRunLength,
+      );
+      final referencePlacements = referenceEngine.build(
+        board: board,
+        openingIndex: openingIndex,
+        openingVertical: openingVertical,
+        startsHorizontally: startsHorizontally,
+      );
+      final balancedScale = fitScale(
+        bounds: boundsFor(balancedPlacements, padding: 0),
+        availableSize: availableSize,
+        preferredScale: preferredScale,
+        visualMargin: visualMargin,
+      );
+      final referenceScale = fitScale(
+        bounds: boundsFor(referencePlacements, padding: 0),
+        availableSize: availableSize,
+        preferredScale: preferredScale,
+        visualMargin: visualMargin,
+      );
+      if (balancedScale + comparisonTolerance >= referenceScale &&
+          validPlacements(balancedPlacements)) {
+        return (engine: balancedEngine, placements: balancedPlacements);
+      }
+    }
+
+    TeamBoardLayoutEngine? bestEngine;
+    List<TeamBoardPlacement>? bestPlacements;
+    var bestScale = -1.0;
+    var bestPaintedArea = -1.0;
+    var bestDistanceFromBase = 1 << 30;
+
+    // On an iPad/Mac, do not make an early 90-degree turn while the straight
+    // lane still has clear room. This keeps a 5-2 moving along its current
+    // edge before the chain uses the free vertical space.
+    final minimumLongRun =
+        availableSize.shortestSide >= 600 ? min(5, baseLongRunLength) : 1;
+    for (var leftRun = minimumLongRun; leftRun <= leftMaximum; leftRun++) {
+      for (
+        var rightRun = minimumLongRun;
+        rightRun <= rightMaximum;
+        rightRun++
+      ) {
+        for (
+          var leftConnector = connectorMinimum;
+          leftConnector <= connectorRunLength;
+          leftConnector++
+        ) {
+          for (
+            var rightConnector = connectorMinimum;
+            rightConnector <= connectorRunLength;
+            rightConnector++
+          ) {
+            final engine = TeamBoardLayoutEngine(
+              longRunLength: baseLongRunLength,
+              connectorRunLength: connectorRunLength,
+              edgeRunLength: edgeRunLength,
+              leftLongRunLength: leftRun,
+              rightLongRunLength: rightRun,
+              leftConnectorRunLength: leftConnector,
+              rightConnectorRunLength: rightConnector,
+            );
+            final placements = engine.build(
+              board: board,
+              openingIndex: openingIndex,
+              openingVertical: openingVertical,
+              startsHorizontally: startsHorizontally,
+            );
+            if (!validPlacements(placements)) continue;
+            final bounds = boundsFor(placements, padding: 0);
+            final scale = fitScale(
+              bounds: bounds,
+              availableSize: availableSize,
+              preferredScale: preferredScale,
+              visualMargin: visualMargin,
+            );
+            final paintedArea = bounds.width * scale * bounds.height * scale;
+            final distanceFromBase =
+                (leftRun - baseLongRunLength).abs() +
+                (rightRun - baseLongRunLength).abs() +
+                (leftConnector - connectorRunLength).abs() +
+                (rightConnector - connectorRunLength).abs();
+            final improvesScale = scale > bestScale + comparisonTolerance;
+            final tiesScale = (scale - bestScale).abs() <= comparisonTolerance;
+            final usesMoreTable =
+                paintedArea > bestPaintedArea + comparisonTolerance;
+            final tiesArea =
+                (paintedArea - bestPaintedArea).abs() <= comparisonTolerance;
+            if (improvesScale ||
+                (tiesScale && usesMoreTable) ||
+                (tiesScale &&
+                    tiesArea &&
+                    distanceFromBase < bestDistanceFromBase)) {
+              bestEngine = engine;
+              bestPlacements = placements;
+              bestScale = scale;
+              bestPaintedArea = paintedArea;
+              bestDistanceFromBase = distanceFromBase;
+            }
+          }
+        }
+      }
+    }
+
+    final fallbackEngine = TeamBoardLayoutEngine(
+      longRunLength: baseLongRunLength,
+      connectorRunLength: connectorRunLength,
+      edgeRunLength: edgeRunLength,
+    );
+    return (
+      engine: bestEngine ?? fallbackEngine,
+      placements:
+          bestPlacements ??
+          fallbackEngine.build(
+            board: board,
+            openingIndex: openingIndex,
+            openingVertical: openingVertical,
+            startsHorizontally: startsHorizontally,
+          ),
+    );
+  }
 
   List<TeamBoardPlacement> build({
     required List<TeamBoardTileSpec> board,
@@ -125,7 +395,7 @@ class TeamBoardLayoutEngine {
       placements[index] = placement;
       previous = placement;
       segmentCount++;
-      if (segmentCount >= _segmentLimit(turnCount)) {
+      if (segmentCount >= _segmentLimit(turnCount, side)) {
         turnPending = true;
       }
     }
@@ -147,9 +417,19 @@ class TeamBoardLayoutEngine {
         : TeamBoardDirection.down;
   }
 
-  int _segmentLimit(int turnCount) {
-    if (turnCount == 0) return longRunLength;
-    if (turnCount.isOdd) return connectorRunLength;
+  int _segmentLimit(int turnCount, TeamBoardSide side) {
+    if (turnCount == 0) {
+      return switch (side) {
+        TeamBoardSide.left => leftLongRunLength ?? longRunLength,
+        TeamBoardSide.right => rightLongRunLength ?? longRunLength,
+      };
+    }
+    if (turnCount.isOdd) {
+      return switch (side) {
+        TeamBoardSide.left => leftConnectorRunLength ?? connectorRunLength,
+        TeamBoardSide.right => rightConnectorRunLength ?? connectorRunLength,
+      };
+    }
     return edgeRunLength;
   }
 
@@ -281,15 +561,16 @@ class TeamBoardLayoutEngine {
   }
 
   static Rect boundsFor(
-    List<TeamBoardPlacement> placements, [
+    List<TeamBoardPlacement> placements, {
     Size tileSize = const Size(30, 54),
-  ]) {
+    double padding = 8,
+  }) {
     var bounds = Rect.zero;
     for (final placement in placements) {
       final rect = rectFor(placement, tileSize);
       bounds = bounds == Rect.zero ? rect : bounds.expandToInclude(rect);
     }
-    return bounds.inflate(8);
+    return padding > 0 ? bounds.inflate(padding) : bounds;
   }
 
   static bool adjacentTilesTouch(
@@ -399,8 +680,10 @@ class TeamBoardLayoutEngine {
 
   /// Verifies thousands of possible partial/final boards, including opening
   /// positions near either end and every opening orientation.
-  static bool debugStressTest({int iterations = 4000}) {
-    const engine = TeamBoardLayoutEngine();
+  static bool debugStressTest({
+    int iterations = 4000,
+    TeamBoardLayoutEngine engine = const TeamBoardLayoutEngine(),
+  }) {
     final random = Random(7322026);
     for (var run = 0; run < iterations; run++) {
       final count = 1 + random.nextInt(28);
@@ -440,6 +723,7 @@ class TeamBoardLayoutEngine {
   static bool debugValidatePlacements(
     List<TeamBoardPlacement> placements, [
     Size tileSize = const Size(30, 54),
+    bool logFailures = true,
   ]) {
     for (var index = 1; index < placements.length; index++) {
       if (!adjacentTilesTouch(
@@ -447,7 +731,9 @@ class TeamBoardLayoutEngine {
         placements[index],
         tileSize,
       )) {
-        debugPrint('Teams layout disconnected at $index.');
+        if (logFailures) {
+          debugPrint('Teams layout disconnected at $index.');
+        }
         return false;
       }
     }
@@ -460,10 +746,12 @@ class TeamBoardLayoutEngine {
                 intersection.width > 1.35 &&
                 intersection.height > 1.35) ||
             adjacentTilesTouch(placements[a], placements[b], tileSize)) {
-          debugPrint(
-            'Teams layout false contact: $a/$b first=$first second=$second '
-            'intersection=$intersection',
-          );
+          if (logFailures) {
+            debugPrint(
+              'Teams layout false contact: $a/$b first=$first second=$second '
+              'intersection=$intersection',
+            );
+          }
           return false;
         }
       }

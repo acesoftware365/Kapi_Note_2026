@@ -7,8 +7,26 @@ import '../screens/domino_online_game_screen.dart';
 import '../screens/domino_player_profile.dart';
 import '../screens/simple_lobby/match_found_transition_screen.dart';
 import '../services/block_room_service.dart';
+import '../services/domino_match_mode.dart';
 import '../services/player_points_service.dart';
 import '../services/teams_online_service.dart';
+
+class GameInvitationInboxLogic {
+  const GameInvitationInboxLogic._();
+
+  static DominoMatchMode modeFromData(Map<String, dynamic> data) {
+    final mode = DominoMatchMode.fromValue(data['mode']);
+    final gameType = DominoMatchMode.fromValue(data['gameType']);
+    return mode.usesPool || gameType.usesPool
+        ? DominoMatchMode.drawPool
+        : DominoMatchMode.block;
+  }
+
+  static String visibleGameName(Map<String, dynamic> data) {
+    if (data['gameType'] == 'teams2v2') return 'Teams 2 vs 2';
+    return modeFromData(data).usesPool ? 'Draw / Pool' : 'Block';
+  }
+}
 
 class GameInvitationInbox extends StatefulWidget {
   const GameInvitationInbox({
@@ -121,6 +139,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
       .set({
         'publicId': profile.publicId.toUpperCase(),
         'initials': profile.initials,
+        'displayName': profile.effectiveDisplayName,
         'countryCode': profile.countryCode,
         'code': profile.code,
         'avatarKey': profile.avatarKey,
@@ -281,6 +300,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
   ) {
     final data = request.data();
     final initials = data['fromInitials'] as String? ?? 'Kapi';
+    final displayName = data['fromDisplayName'] as String? ?? initials;
     return Card(
       color: const Color(0xFF172B3A),
       child: Padding(
@@ -295,8 +315,8 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
             Expanded(
               child: Text(
                 _isSpanish
-                    ? '$initials quiere agregarte como amigo.'
-                    : '$initials wants to add you as a friend.',
+                    ? '$displayName quiere agregarte como amigo.'
+                    : '$displayName wants to add you as a friend.',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
@@ -357,6 +377,10 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
   ) {
     final data = invite.data();
     final teams = data['gameType'] == 'teams2v2';
+    final mode = GameInvitationInboxLogic.modeFromData(data);
+    final gameName = GameInvitationInboxLogic.visibleGameName(data);
+    final inviterName =
+        data['fromDisplayName'] ?? data['fromInitials'] ?? 'Un amigo';
     return Card(
       color: const Color(0xFF172B3A),
       child: Padding(
@@ -364,15 +388,19 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
         child: Row(
           children: [
             Icon(
-              teams ? Icons.groups_2_rounded : Icons.view_module_rounded,
+              teams
+                  ? Icons.groups_2_rounded
+                  : mode.usesPool
+                  ? Icons.inventory_2_rounded
+                  : Icons.view_module_rounded,
               color: const Color(0xFFFFD36B),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 _isSpanish
-                    ? '${data['fromInitials'] ?? 'Un amigo'} te invita a ${teams ? 'Teams 2 vs 2' : 'Block'}.'
-                    : '${data['fromInitials'] ?? 'A friend'} invited you to ${teams ? 'Teams 2 vs 2' : 'Block'}.',
+                    ? '$inviterName te invita a $gameName.'
+                    : '$inviterName invited you to $gameName.',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
@@ -426,6 +454,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
     final profile = _profile;
     if (profile == null) return;
     final data = invite.data();
+    final mode = GameInvitationInboxLogic.modeFromData(data);
     if (data['gameType'] == 'teams2v2') {
       final roomId = data['roomId'] as String? ?? '';
       final points = await PlayerPointsService.loadLocalTotalPoints(
@@ -480,6 +509,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
             hostData['initials'] as String? ??
             data['fromInitials'] as String? ??
             'P1',
+        displayName: hostData['displayName'] as String? ?? '',
         countryCode: hostData['countryCode'] as String? ?? '',
         code: hostData['code'] as String? ?? hostId.split('.').last,
         avatarKey: hostData['avatarKey'] as String? ?? 'person',
@@ -490,6 +520,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
           host: host,
           guestId: profile.publicId,
           guestInitials: profile.initials,
+          mode: mode,
         );
       } on StateError {
         await invite.reference.update({
@@ -529,6 +560,7 @@ class _GameInvitationInboxState extends State<GameInvitationInbox>
                   data['fromInitials'] as String? ??
                   'P1')
               .toUpperCase(),
+      displayName: opponentData['displayName'] as String? ?? '',
       countryCode:
           (opponentData['countryCode'] as String? ?? 'US').toUpperCase(),
       code:

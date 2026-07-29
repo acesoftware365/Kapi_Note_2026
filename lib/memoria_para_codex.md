@@ -1294,6 +1294,21 @@ Plan tecnico pendiente para hacerlo real:
 - Para las verificaciones locales siguientes se utilizarán solamente iPhone 16 e iPhone 16e.
 - Versión: `5.0.124+139`.
 
+## Reemplazo online de Block después de 8 segundos (2026-07-28)
+
+- `Buscar partida online` en Block espera exactamente 8 segundos por un jugador real.
+- Si nadie real reserva la partida antes del límite, la mesa se completa con un rival simulado que conserva nombre, país, bandera, avatar, rango y puntos coherentes durante el lobby, la transición y la partida.
+- Los perfiles disponibles incluyen combinaciones coherentes como Juan/República Dominicana, Sofía/Puerto Rico, Mohamed/Egipto, Arjun/India, Aiko/Japón, Diego/México, Valeria/España y Alex/Estados Unidos.
+- El rival simulado juega únicamente fichas legales, pasa cuando corresponde, espera un tiempo natural entre jugadas y acepta la revancha automáticamente.
+- Puede enviar mensajes breves y reacciones ocasionales cuando ocurre un paso, paso redondo, bloqueo, capicúa o dominó. Cada reacción se consume una sola vez aunque existan reconexiones o varios clientes observando.
+- El reemplazo no crea una cuenta falsa, no aparece como usuario conectado, no participa en el ranking y no entrega Kapi Coins; su propósito es solamente completar la mesa cuando todavía no existe suficiente comunidad.
+- Un jugador humano que reserve antes de cumplirse los 8 segundos siempre tiene prioridad. La reserva, el juego y la limpieza de la cola se guardan de manera atómica para impedir dos rivales, juegos duplicados o entradas tardías.
+- Existe un temporizador independiente que garantiza el reemplazo aunque una lectura de Firebase tarde o quede bloqueada.
+- Verificación real completada en iOS, Android y macOS: los tres sistemas llegaron a la mesa con un perfil simulado completo y una apertura legal.
+- Verificación automática final: `143/143` pruebas aprobadas y análisis dirigido sin errores.
+- Archivos principales: `services/block_matchmaking_service.dart`, `screens/simple_lobby/simple_lobby_screen.dart` y `screens/domino_online_game_screen.dart`.
+- Versión verificada: `5.0.153+169`.
+
 ## Ideas futuras
 
 ### Kapi Coach — asistente de entrenamiento
@@ -1303,3 +1318,27 @@ Plan tecnico pendiente para hacerlo real:
 - Puede iluminar la ficha y el extremo recomendado, acompañado por una explicación breve.
 - Debe poder apagarse en cualquier momento y no modificar reglas, resultados, ranking ni el equilibrio de partidas online.
 - Se implementará en una fase futura, una vez establecida la jugabilidad actual.
+
+## Preparación de Kapi Note 6.0.0 y respaldo Windows (2026-07-28)
+
+- La versión central del proyecto se elevó a `6.0.0+170`.
+- Los tres ajustes del target Runner de iOS se alinearon a marketing version
+  `6.0.0` y build `170`; macOS, Android y Windows continúan tomando su versión
+  desde Flutter.
+- No se elevó todavía la versión mínima online de Remote Config. Debe cambiarse
+  por plataforma solamente después de que 6.0.0 esté disponible en su tienda.
+- Se preparó un respaldo fechado en
+  `/Volumes/My Passport/CodeX Chat/Kapi Note/Kapi Note 6.0.0 - Windows Backup - 2026-07-28`.
+- El respaldo incluye proyecto restaurable con `.git`, artefactos de entrega,
+  transcripción legible, archivo técnico completo del chat, documentos de
+  continuidad, checksums y una guía de Windows.
+- La base nativa Windows ya existe, junto con Firebase Core/Auth/Firestore/
+  Remote Config, audio, compartir y apertura de enlaces.
+- Windows todavía requiere guards o servicios alternativos para Analytics,
+  compras, AdMob rewarded, Google Sign-In y reseñas antes de poder abrir y
+  probar la aplicación de manera segura.
+- La compilación y validación final de Windows debe hacerse en una PC Windows
+  con Visual Studio 2022 y Desktop development with C++.
+- La monetización Windows no está implementada. La primera versión debe ocultar
+  AdMob y compras móviles; después puede integrar Microsoft Store commerce con
+  validación de recibos.

@@ -30,7 +30,7 @@ void main() {
     );
   });
 
-  test('a fourth pass that blocks the hand never awards round-pass points', () {
+  test('a blocked hand never awards round-pass points', () {
     expect(
       TeamScoringRules.roundPassBonusForPlay(
         consecutivePasses: 4,

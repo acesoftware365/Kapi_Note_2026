@@ -116,8 +116,10 @@ class _AdaptiveDominoHandTrayState extends State<AdaptiveDominoHandTray>
     );
   }
 
-  String _trayTextureAsset(String trayId) =>
-      'assets/kapi_shop/trays/$trayId.png';
+  String _trayTextureAsset(String trayId) {
+    final configuredAsset = KapiCosmeticsService.byId(trayId).previewAsset;
+    return configuredAsset ?? 'assets/kapi_shop/trays/$trayId.png';
+  }
 }
 
 class _HandTrayScheme {

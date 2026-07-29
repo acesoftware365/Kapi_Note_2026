@@ -138,7 +138,12 @@ class TeamGameValidator {
           if (choice == null) {
             consecutivePasses++;
             turn = (turn + 1) % 4;
-            if (consecutivePasses >= 4) {
+            final returnedToBlocker =
+                consecutivePasses >= 3 && turn == lastPlayerToPlay;
+            final blockerCannotPlay =
+                returnedToBlocker &&
+                !hands[turn].any((tile) => _validSides(board, tile).isNotEmpty);
+            if (blockerCannotPlay || consecutivePasses >= 4) {
               final handPips = <int>[
                 for (var player = 0; player < 4; player++)
                   hands[player].fold<int>(0, (sum, tile) => sum + tile.points),

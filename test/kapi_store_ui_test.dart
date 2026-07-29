@@ -45,7 +45,10 @@ void main() {
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('Buy'));
-    await tester.pumpAndSettle();
+    // The store query may keep a platform progress indicator active in widget
+    // tests. A bounded pump is enough to render and verify the purchase sheet.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Buy Kapi Coins'), findsOneWidget);
     expect(find.text(r'$0.99'), findsOneWidget);
     expect(find.text(r'$2.99'), findsOneWidget);
@@ -61,6 +64,9 @@ void main() {
     await tester.tap(find.text('250').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('Yes, buy'), findsOneWidget);
+    await tester.tap(find.text('Yes, buy'));
+    await tester.pumpAndSettle();
 
     expect(store.balance, 400);
     expect(store.equipped(KapiCosmeticType.table).id, 'table_night');

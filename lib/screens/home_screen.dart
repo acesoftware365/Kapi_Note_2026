@@ -226,8 +226,8 @@ class _HomeScreenState extends State<HomeScreen> {
         SizedBox(height: isTablet ? 16 : 12),
         Text(
           isSpanish
-              ? 'Juega en línea o contra CPU, lleva tus apuntes y disfruta 4 juegos de dominó en un solo lugar.'
-              : 'Play online or vs CPU, keep your notes, and enjoy 4 domino games in one place.',
+              ? 'Juega en línea, lleva tus apuntes y disfruta 4 juegos de dominó en un solo lugar.'
+              : 'Play online, keep your notes, and enjoy 4 domino games in one place.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             color: Colors.white.withValues(alpha: 0.8),

@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/kapi_cosmetics_service.dart';
@@ -36,6 +37,7 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
   bool _obscurePassword = true;
 
   bool get _spanish => Localizations.localeOf(context).languageCode == 'es';
+  bool get _isMacOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
 
   @override
   void initState() {
@@ -288,8 +290,8 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
             : 'That email is already registered. Use “Sign in”.',
       'invalid-credential' || 'wrong-password' || 'user-not-found' =>
         _spanish
-            ? 'Correo o contraseña de Kapi Note incorrectos. Para usar iCloud, pulsa “Continuar con Apple”.'
-            : 'Incorrect Kapi Note email or password. To use iCloud, tap “Continue with Apple”.',
+            ? 'Correo o contraseña de Kapi Note incorrectos.'
+            : 'Incorrect Kapi Note email or password.',
       'too-many-requests' =>
         _spanish
             ? 'Demasiados intentos. Espera un momento.'
@@ -394,46 +396,48 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
                 const SizedBox(height: 16),
                 if (!protected) ...[
                   _buildEmailCard(),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      const Expanded(child: Divider(color: Colors.white24)),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: Text(
-                          _spanish ? 'o continúa con' : 'or continue with',
-                          style: const TextStyle(color: Colors.white60),
+                  if (!_isMacOS) ...[
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        const Expanded(child: Divider(color: Colors.white24)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: Text(
+                            _spanish ? 'o continúa con' : 'or continue with',
+                            style: const TextStyle(color: Colors.white60),
+                          ),
                         ),
+                        const Expanded(child: Divider(color: Colors.white24)),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    if (account.providerAvailable(PlayerAccountProvider.apple))
+                      _AccountButton(
+                        icon: Icons.apple,
+                        label:
+                            _spanish
+                                ? 'Continuar con Apple'
+                                : 'Continue with Apple',
+                        onTap:
+                            _working
+                                ? null
+                                : () => _use(PlayerAccountProvider.apple),
                       ),
-                      const Expanded(child: Divider(color: Colors.white24)),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  if (account.providerAvailable(PlayerAccountProvider.apple))
+                    if (account.providerAvailable(PlayerAccountProvider.apple))
+                      const SizedBox(height: 10),
                     _AccountButton(
-                      icon: Icons.apple,
+                      icon: Icons.g_mobiledata_rounded,
                       label:
                           _spanish
-                              ? 'Continuar con Apple'
-                              : 'Continue with Apple',
+                              ? 'Continuar con Google'
+                              : 'Continue with Google',
                       onTap:
                           _working
                               ? null
-                              : () => _use(PlayerAccountProvider.apple),
+                              : () => _use(PlayerAccountProvider.google),
                     ),
-                  if (account.providerAvailable(PlayerAccountProvider.apple))
-                    const SizedBox(height: 10),
-                  _AccountButton(
-                    icon: Icons.g_mobiledata_rounded,
-                    label:
-                        _spanish
-                            ? 'Continuar con Google'
-                            : 'Continue with Google',
-                    onTap:
-                        _working
-                            ? null
-                            : () => _use(PlayerAccountProvider.google),
-                  ),
+                  ],
                 ] else if (account.requiresEmailVerification) ...[
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -553,9 +557,13 @@ class _PlayerAccountScreenState extends State<PlayerAccountScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            _spanish
-                ? 'Estos campos son para una cuenta Kapi Note. Para entrar con tu cuenta de iCloud, usa “Continuar con Apple” abajo.'
-                : 'These fields are for a Kapi Note account. To sign in with your iCloud account, use “Continue with Apple” below.',
+            _isMacOS
+                ? (_spanish
+                    ? 'Crea o inicia sesión con el correo de tu cuenta Kapi Note.'
+                    : 'Create or sign in with your Kapi Note account email.')
+                : (_spanish
+                    ? 'Estos campos son para una cuenta Kapi Note. Para entrar con tu cuenta de iCloud, usa “Continuar con Apple” abajo.'
+                    : 'These fields are for a Kapi Note account. To sign in with your iCloud account, use “Continue with Apple” below.'),
             style: const TextStyle(
               color: Color(0xFFBCC1C9),
               height: 1.3,

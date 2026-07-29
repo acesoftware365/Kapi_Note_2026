@@ -131,8 +131,8 @@ class AboutScreen extends StatelessWidget {
                             title: 'Block Dominoes beta',
                             body:
                                 spanish
-                                    ? 'Juega contra CPU o con otra persona mediante lobby y matchmaking.'
-                                    : 'Play against CPU or another person through lobby and matchmaking.',
+                                    ? 'Juega online mediante lobby y matchmaking.'
+                                    : 'Play online through lobby and matchmaking.',
                           ),
                           const SizedBox(height: 14),
                           _AboutFeature(
@@ -149,11 +149,14 @@ class AboutScreen extends StatelessWidget {
                           const SizedBox(height: 14),
                           _AboutFeature(
                             icon: Icons.upcoming_rounded,
-                            title: spanish ? 'Proximamente' : 'Coming next',
+                            title:
+                                spanish
+                                    ? 'Draw disponible'
+                                    : 'Draw is available',
                             body:
                                 spanish
-                                    ? 'Los modos Draw y All Fives continuan en desarrollo.'
-                                    : 'Draw and All Fives modes remain in development.',
+                                    ? 'Draw con pozo ya está disponible online. All Fives continúa en desarrollo.'
+                                    : 'Draw with a pool is now available online. All Fives remains in development.',
                           ),
                           const SizedBox(height: 26),
                           LinkButton(

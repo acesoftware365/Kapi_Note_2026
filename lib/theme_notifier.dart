@@ -12,12 +12,13 @@ class ThemeNotifier extends ChangeNotifier {
 
   ThemeMode get themeMode => _themeMode;
 
-  Future<void> loadThemeMode() async { // Made public by removing '_'
+  Future<void> loadThemeMode() async {
+    // Made public by removing '_'
     final prefs = await SharedPreferences.getInstance();
     final String? themeModeString = prefs.getString(_themeModeKey);
     if (themeModeString != null) {
       _themeMode = ThemeMode.values.firstWhere(
-            (e) => e.toString() == 'ThemeMode.$themeModeString',
+        (e) => e.toString() == 'ThemeMode.$themeModeString',
         orElse: () => ThemeMode.system,
       );
     }
@@ -28,7 +29,10 @@ class ThemeNotifier extends ChangeNotifier {
     if (_themeMode == newThemeMode) return;
     _themeMode = newThemeMode;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themeModeKey, newThemeMode.name); // Use .name for enum string
+    await prefs.setString(
+      _themeModeKey,
+      newThemeMode.name,
+    ); // Use .name for enum string
     notifyListeners();
   }
 }

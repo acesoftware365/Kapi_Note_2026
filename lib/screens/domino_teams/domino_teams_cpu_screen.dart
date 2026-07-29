@@ -16,6 +16,7 @@ import '../../services/teams_online_service.dart';
 import '../../widgets/anchored_adaptive_banner_ad.dart';
 import '../../widgets/adaptive_domino_hand_tray.dart';
 import '../../widgets/domino_result_celebration.dart';
+import '../../widgets/domino_special_play_effect.dart';
 import '../../widgets/game_audio_controls.dart';
 import '../../widgets/kapi_centerpiece_overlay.dart';
 import '../../widgets/kapi_table_center_material.dart';
@@ -29,6 +30,7 @@ class DominoTeamsCpuScreen extends StatefulWidget {
     super.key,
     this.onlineGameId,
     this.onlinePlayerId,
+    this.partnerDisplayNameForTesting,
   }) : assert(
          (onlineGameId == null) == (onlinePlayerId == null),
          'Online game and player IDs must be provided together.',
@@ -38,8 +40,18 @@ class DominoTeamsCpuScreen extends StatefulWidget {
   final String? onlinePlayerId;
 
   @visibleForTesting
+  final String? partnerDisplayNameForTesting;
+
+  @visibleForTesting
   static bool resetAllowedFor({required String? onlineGameId}) =>
       onlineGameId == null;
+
+  @visibleForTesting
+  static const String completedMatchGameModeRoute = '/start-game';
+
+  @visibleForTesting
+  static bool shouldApplyAbandonmentPenalty({required bool matchFinished}) =>
+      !matchFinished;
 
   @visibleForTesting
   static ({int player, String messageId})? cpuRoundPassReactionFor({
@@ -60,6 +72,21 @@ class DominoTeamsCpuScreen extends StatefulWidget {
       player: humanScored ? (useLeftRival ? 1 : 3) : scoringPlayer,
       messageId: messages[messageVariant.abs() % messages.length],
     );
+  }
+
+  @visibleForTesting
+  static bool coordinatesFallbackReactions({
+    required String currentPlayerId,
+    required List<TeamsOnlinePlayer> players,
+  }) {
+    final currentIdentity = TeamsOnlineRoster.identityKey(currentPlayerId);
+    final humanIdentities = players
+      .where((player) => !player.isCpu)
+      .map((player) => TeamsOnlineRoster.identityKey(player.id))
+      .where((identity) => identity.isNotEmpty)
+      .toList(growable: false)..sort();
+    return humanIdentities.isNotEmpty &&
+        currentIdentity == humanIdentities.first;
   }
 
   @override
@@ -97,8 +124,10 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   _TeamTile? _sideChoiceTile;
   Completer<_Side?>? _sideChoiceCompleter;
   _Side? _selectedSideChoice;
-  int? _passNoticePlayer;
-  int _passNoticeSequence = 0;
+  DominoSpecialEffectKind? _specialEffectKind;
+  String? _specialEffectPlayerName;
+  int _specialEffectSequence = 0;
+  bool _blockResultPending = false;
   int? _quickChatNoticePlayer;
   String? _quickChatNoticeId;
   String? _quickChatNoticeEmoji;
@@ -109,7 +138,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   DominoPlayerProfile? _profile;
   int _profilePoints = 0;
   late final AnimationController _sideChoicePulse;
-  Timer? _passNoticeTimer;
+  Timer? _specialEffectTimer;
   Timer? _quickChatNoticeTimer;
   DateTime? _lastQuickChatSentAt;
   TeamsOnlineService? _onlineService;
@@ -130,9 +159,14 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   double _playedTileScale = 1.0;
   double _handTileScale = 1.0;
 
-  bool get _isTablet => MediaQuery.sizeOf(context).shortestSide >= 600;
-  double get _effectivePlayedTileScale =>
-      _playedTileScale * (_isTablet ? 1.18 : 1.0);
+  // In iPad floating/windowed modes the compact width can fall below 600 pt.
+  // Its long side still identifies a tablet, which keeps the Settings dialog
+  // from using the auto-dismissed phone sheet.
+  bool get _isTablet {
+    final size = MediaQuery.sizeOf(context);
+    return size.shortestSide >= 550 || size.longestSide >= 1100;
+  }
+
   double get _effectiveHandTileScale =>
       _handTileScale * (_isTablet ? 1.18 : 1.0);
 
@@ -198,7 +232,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       _handlePlayedTileScale,
     );
     DominoDisplaySettings.handTileScale.removeListener(_handleHandTileScale);
-    _passNoticeTimer?.cancel();
+    _specialEffectTimer?.cancel();
     _quickChatNoticeTimer?.cancel();
     _onlineCpuTimer?.cancel();
     _onlineHumanTimer?.cancel();
@@ -334,7 +368,6 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       return;
     }
 
-    if (isNewRevision) _passNoticeTimer?.cancel();
     setState(() {
       _onlinePlayers = relativePlayers;
       for (var relative = 0; relative < 4; relative++) {
@@ -394,12 +427,6 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       if (actionType == 'play' && _board.isNotEmpty) {
         _lastPlacedTile = action['side'] == 'left' ? _board.first : _board.last;
       }
-      if (isNewRevision && actionType == 'pass' && actionRelative != null) {
-        _passNoticePlayer = actionRelative;
-        _passNoticeSequence++;
-      } else if (actionType != 'pass') {
-        _passNoticePlayer = null;
-      }
       _status = _onlineStatus(actionType, actionRelative, action);
       _onlineRevision = game.revision;
       _onlineQuickChatSequence = max(
@@ -430,12 +457,11 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
 
     if (isNewRevision) {
       if (actionType == 'pass') {
-        unawaited(AudioManager.instance.playSfx(AudioAssets.turnNotification));
-        final noticePlayer = actionRelative;
-        _passNoticeTimer = Timer(const Duration(milliseconds: 2200), () {
-          if (!mounted || _passNoticePlayer != noticePlayer) return;
-          setState(() => _passNoticePlayer = null);
-        });
+        unawaited(AudioManager.instance.playSfx(AudioAssets.dominoPass));
+        _showSpecialEffect(
+          DominoSpecialEffectKind.pass,
+          player: actionRelative,
+        );
       } else if (actionType == 'play') {
         final played = _lastPlacedTile;
         unawaited(
@@ -445,7 +471,34 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                 : AudioAssets.dominoPlace,
           ),
         );
+        if ((action['roundPassBonus'] as num?)?.toInt() case final bonus?
+            when bonus > 0) {
+          _showSpecialEffect(
+            DominoSpecialEffectKind.roundPass,
+            player: actionRelative,
+          );
+        }
+      } else if (actionType == 'roundEnd') {
+        if (action['blocked'] == true) {
+          _blockResultPending = true;
+          _showSpecialEffect(DominoSpecialEffectKind.blocked);
+        } else if (action['special'] == 'capicua') {
+          _showSpecialEffect(
+            DominoSpecialEffectKind.capicua,
+            player: actionRelative,
+          );
+        } else {
+          _showSpecialEffect(
+            DominoSpecialEffectKind.domino,
+            player: actionRelative,
+          );
+        }
       }
+      _maybeSendOnlinePlayerReaction(
+        game: game,
+        actionType: actionType,
+        action: action,
+      );
     }
     if (game.roundOver && _onlineRecordedEndRevision != game.revision) {
       _onlineRecordedEndRevision = game.revision;
@@ -477,7 +530,9 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       'roundEnd' =>
         '$name ${action['blocked'] == true ? (_isSpanish ? 'ganó la tranca' : 'won the block') : (_isSpanish ? 'dominó' : 'dominoed')} +${action['points'] ?? 0}',
       'replacedByCpu' =>
-        _isSpanish ? '$name ahora juega como CPU' : '$name is now a CPU',
+        _isSpanish
+            ? '$name ahora juega automáticamente'
+            : '$name is now playing automatically',
       _ => _isSpanish ? 'Partida online' : 'Online match',
     };
   }
@@ -573,7 +628,6 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   void _startRound() {
     if (!_resetAllowed) return;
     _gameGeneration++;
-    _passNoticeTimer?.cancel();
     _cpuBusy = false;
     final deck = <_TeamTile>[
       for (var left = 0; left <= 6; left++)
@@ -588,13 +642,13 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     _openingTile = null;
     _lastPlacedTile = null;
     _roundOver = false;
+    _blockResultPending = false;
     _resultWinnerPlayer = null;
     _resultPoints = 0;
     _resultSpecial = null;
     _resultBlocked = false;
     _showFinalHand = false;
     _sideChoiceTile = null;
-    _passNoticePlayer = null;
     _consecutivePasses = 0;
     _lastPlayerToPlay = null;
 
@@ -632,16 +686,22 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   }
 
   String _playerName(int player) {
+    if (player == 2 && widget.partnerDisplayNameForTesting != null) {
+      return widget.partnerDisplayNameForTesting!;
+    }
     if (_isOnline && player >= 0 && player < _onlinePlayers.length) {
       if (player == 0) return _isSpanish ? 'Tú' : 'You';
       final onlinePlayer = _onlinePlayers[player];
-      if (!onlinePlayer.isCpu || onlinePlayer.replacedPlayer) {
+      if (!onlinePlayer.isCpu ||
+          onlinePlayer.replacedPlayer ||
+          onlinePlayer.isFallbackOnlinePlayer) {
         final badge = KapiCosmeticsService.byId(onlinePlayer.badgeKey);
-        final identity =
+        final flag =
             badge.type == KapiCosmeticType.flag && badge.id != 'flag_none'
-                ? '${badge.emoji} ${onlinePlayer.initials}'
-                : onlinePlayer.initials;
-        return onlinePlayer.replacedPlayer ? '$identity · CPU' : identity;
+                ? badge.emoji
+                : _countryFlag(onlinePlayer.countryCode);
+        final identity = '$flag ${onlinePlayer.displayName}';
+        return identity;
       }
       return switch (player) {
         1 => 'CPU R',
@@ -676,7 +736,11 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       _leftOpen != _rightOpen &&
       _validSides(tile).length == 2;
 
-  _BoardSidePreview _previewForSide(_Side side, _TeamTile candidate) {
+  _BoardSidePreview _previewForSide(
+    _Side side,
+    _TeamTile candidate, {
+    TeamBoardLayoutEngine layoutEngine = _layoutEngine,
+  }) {
     final opening = _openingTile!;
     assert(_board.isNotEmpty);
     final placed = switch (side) {
@@ -693,7 +757,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     var openingIndex = _board.indexWhere((tile) => identical(tile, opening));
     if (openingIndex < 0) openingIndex = _board.indexOf(opening);
     if (side == _Side.left) openingIndex++;
-    final placements = _layoutEngine.build(
+    final placements = layoutEngine.build(
       board: [
         for (final tile in hypothetical)
           TeamBoardTileSpec(isDouble: tile.isDouble),
@@ -798,8 +862,20 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   }
 
   Future<void> _playHuman(_TeamTile tile) async {
-    if (_turn != 0 || _roundOver || _cpuBusy || _sideChoiceTile != null) {
+    if (_turn != 0 || _roundOver || _cpuBusy) {
       return;
+    }
+    // A player may change their mind before choosing the red/blue end. Clear
+    // the old pair of previews first, so only the newly selected tile owns
+    // the active animation.
+    final previousChoice = _sideChoiceCompleter;
+    if (_sideChoiceTile != null && previousChoice != null) {
+      setState(() {
+        _sideChoiceTile = null;
+        _selectedSideChoice = null;
+        _sideChoiceCompleter = null;
+      });
+      if (!previousChoice.isCompleted) previousChoice.complete(null);
     }
     final sides = _validSides(tile);
     if (sides.isEmpty) {
@@ -829,7 +905,9 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       try {
         choice = await completer.future;
       } finally {
-        if (mounted) {
+        // A newer tile may already have opened a different side chooser.
+        // Never let this old async continuation erase the new markers.
+        if (mounted && identical(_sideChoiceCompleter, completer)) {
           setState(() {
             _sideChoiceTile = null;
             _selectedSideChoice = null;
@@ -940,8 +1018,14 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     );
     if (roundPassBonus > 0) {
       _maybeShowCpuRoundPassReaction(player);
+      _showSpecialEffect(DominoSpecialEffectKind.roundPass, player: player);
     }
     if (_hands[player].isEmpty) {
+      if (capicua) {
+        _showSpecialEffect(DominoSpecialEffectKind.capicua, player: player);
+      } else {
+        _showSpecialEffect(DominoSpecialEffectKind.domino, player: player);
+      }
       _finishDominated(
         player,
         capicua: capicua,
@@ -955,24 +1039,63 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   }
 
   void _pass(int player) {
-    _passNoticeTimer?.cancel();
     setState(() {
       _consecutivePasses++;
       _status = '${_playerName(player)} ${_isSpanish ? 'pasó' : 'passed'}';
-      _passNoticePlayer = player;
-      _passNoticeSequence++;
     });
-    unawaited(AudioManager.instance.playSfx(AudioAssets.turnNotification));
-    _passNoticeTimer = Timer(const Duration(milliseconds: 2200), () {
-      if (!mounted || _passNoticePlayer != player) return;
-      setState(() => _passNoticePlayer = null);
-    });
+    unawaited(AudioManager.instance.playSfx(AudioAssets.dominoPass));
+    _showSpecialEffect(DominoSpecialEffectKind.pass, player: player);
     _turn = (_turn + 1) % 4;
-    if (_consecutivePasses >= 4) {
+    final returnedToBlocker =
+        _consecutivePasses >= 3 && _turn == _lastPlayerToPlay;
+    final blockerCannotPlay =
+        returnedToBlocker &&
+        !_hands[_turn].any((tile) => _validSides(tile).isNotEmpty);
+    if (blockerCannotPlay || _consecutivePasses >= 4) {
       _finishBlocked();
       return;
     }
     _continueCpuTurns();
+  }
+
+  void _showSpecialEffect(DominoSpecialEffectKind kind, {int? player}) {
+    if (!mounted) return;
+    _specialEffectTimer?.cancel();
+    setState(() {
+      _specialEffectKind = kind;
+      _specialEffectPlayerName = player == null ? null : _playerName(player);
+      _specialEffectSequence++;
+    });
+    if (kind == DominoSpecialEffectKind.capicua) {
+      unawaited(AudioManager.instance.playSfx(AudioAssets.celebration));
+    } else if (kind == DominoSpecialEffectKind.domino) {
+      unawaited(AudioManager.instance.playSfx(AudioAssets.dominoLastTile));
+    } else if (kind == DominoSpecialEffectKind.blocked) {
+      unawaited(AudioManager.instance.playSfx(AudioAssets.dominoBlocked));
+    }
+    final sequence = _specialEffectSequence;
+    _specialEffectTimer = Timer(
+      Duration(
+        milliseconds:
+            kind == DominoSpecialEffectKind.capicua
+                ? 3050
+                : kind == DominoSpecialEffectKind.domino
+                ? 3000
+                : kind == DominoSpecialEffectKind.blocked
+                ? 2750
+                : 2250,
+      ),
+      () {
+        if (!mounted || sequence != _specialEffectSequence) return;
+        setState(() {
+          _specialEffectKind = null;
+          _specialEffectPlayerName = null;
+          if (kind == DominoSpecialEffectKind.blocked) {
+            _blockResultPending = false;
+          }
+        });
+      },
+    );
   }
 
   Future<void> _continueCpuTurns() async {
@@ -1097,15 +1220,18 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     final gained = handPips.fold<int>(0, (total, points) => total + points);
     setState(() {
       _teamScores[_teamFor(winner)] += gained;
+      _previousDominator = winner;
       _roundOver = true;
       _resultWinnerPlayer = winner;
       _resultPoints = gained;
       _resultSpecial = null;
       _resultBlocked = true;
+      _blockResultPending = true;
       _showFinalHand = false;
       _status =
           '${_isSpanish ? 'Tranca:' : 'Blocked:'} ${_playerName(winner)} +$gained';
     });
+    _showSpecialEffect(DominoSpecialEffectKind.blocked);
     _recordRankingRound(_teamFor(winner) == 0, gained);
   }
 
@@ -1117,6 +1243,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
         code: profile.code,
         publicId: profile.publicId,
         initials: profile.initials,
+        displayName: profile.effectiveDisplayName,
         countryCode: profile.countryCode,
         mode: 'teams_2v2',
         pointsEarned: myTeamWon ? gained : 0,
@@ -1174,8 +1301,64 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     Navigator.pushReplacementNamed(context, '/domino-teams-online-lobby');
   }
 
+  bool get _onlineMatchIsFinished =>
+      _isOnline &&
+      _roundOver &&
+      _teamScores.any((score) => score >= _scoreTarget);
+
+  /// A completed match is not an abandonment.  The player can return to the
+  /// lobby without being replaced by a CPU or losing ranking points.
+  bool _prepareCompletedOnlineExit() {
+    if (!_onlineMatchIsFinished || _leavingOnline) return false;
+    _leavingOnline = true;
+    _onlineCpuTimer?.cancel();
+    _onlineHumanTimer?.cancel();
+    _onlineNextRoundTimer?.cancel();
+    final subscription = _onlineSubscription;
+    _onlineSubscription = null;
+    if (subscription != null) unawaited(subscription.cancel());
+    setState(() => _allowOnlinePop = true);
+    return true;
+  }
+
+  void _exitCompletedOnlineMatch() {
+    if (!_prepareCompletedOnlineExit()) return;
+    Navigator.pushReplacementNamed(context, '/domino-teams-online-lobby');
+  }
+
+  void _openGameModeSelection() {
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      DominoTeamsCpuScreen.completedMatchGameModeRoute,
+      (route) => route.settings.name == '/home',
+    );
+  }
+
+  void _returnFromCpuGame() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    _openGameModeSelection();
+  }
+
+  void _returnToGameModeSelection() {
+    final matchFinished =
+        _roundOver && _teamScores.any((score) => score >= _scoreTarget);
+    if (!matchFinished) return;
+    if (_isOnline && !_prepareCompletedOnlineExit()) return;
+    _openGameModeSelection();
+  }
+
   Future<void> _confirmLeaveOnlineMatch() async {
     if (!_isOnline || _leavingOnline) return;
+    if (!DominoTeamsCpuScreen.shouldApplyAbandonmentPenalty(
+      matchFinished: _onlineMatchIsFinished,
+    )) {
+      _exitCompletedOnlineMatch();
+      return;
+    }
     final leave = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -1196,8 +1379,8 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
             ),
             content: Text(
               _isSpanish
-                  ? 'Una CPU ocupará tu puesto y perderás 30 puntos de ranking.'
-                  : 'A CPU will take your seat and you will lose 30 ranking points.',
+                  ? 'Un jugador automático ocupará tu puesto y perderás 30 puntos de ranking.'
+                  : 'An automatic player will take your seat and you will lose 30 ranking points.',
               style: const TextStyle(color: Colors.white70, height: 1.35),
             ),
             actions: [
@@ -1642,29 +1825,6 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                 const SizedBox(height: 8),
               ],
               OutlinedButton.icon(
-                onPressed: () async {
-                  final audio = AudioManager.instance;
-                  if (!audio.sfxEnabled) {
-                    await audio.setSfxEnabled(true);
-                  }
-                  if (audio.sfxVolume < 0.5) {
-                    await audio.setSfxVolume(0.8);
-                  }
-                  await audio.playSfx(AudioAssets.turnNotification);
-                },
-                icon: const Icon(Icons.campaign_rounded),
-                label: Text(
-                  _isSpanish
-                      ? 'Activar y probar sonido'
-                      : 'Enable & test sound',
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Color(0xFFFFD36B)),
-                ),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
                 onPressed: () {
                   Navigator.pop(sheetContext);
                   Navigator.pushNamed(context, '/note-settings');
@@ -1710,7 +1870,8 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       _showPlayerProfile(0, includeQuickMessages: true);
 
   String _countryFlag(String countryCode) {
-    final normalized = countryCode.trim().toUpperCase();
+    final raw = countryCode.trim().toUpperCase();
+    final normalized = raw == 'DR' ? 'DO' : raw;
     if (!RegExp(r'^[A-Z]{2}$').hasMatch(normalized)) return '🌐';
     return String.fromCharCodes(
       normalized.codeUnits.map((character) => character + 127397),
@@ -1733,19 +1894,21 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       final online = _onlinePlayers[player];
       final cpu = online.isCpu;
       final replaced = online.replacedPlayer;
+      final fallbackPlayer = online.isFallbackOnlinePlayer;
+      final visibleAsCpu = cpu && !replaced && !fallbackPlayer;
       return _TeamsPlayerProfileData(
         player: player,
-        name: player == 0 ? online.initials : _playerName(player),
-        publicId: cpu && !replaced ? 'CPU' : online.id,
-        countryCode: cpu && !replaced ? 'CPU' : online.countryCode,
+        name: online.displayName,
+        publicId: visibleAsCpu ? 'CPU' : online.id,
+        countryCode: visibleAsCpu ? 'CPU' : online.countryCode,
         flagEmoji:
-            cpu && !replaced
+            visibleAsCpu
                 ? '🤖'
                 : (_cosmeticFlagEmoji(online.badgeKey) ??
                     _countryFlag(online.countryCode)),
-        avatarKey: cpu && !replaced ? 'robot' : online.avatarKey,
+        avatarKey: visibleAsCpu ? 'robot' : online.avatarKey,
         points: online.points,
-        isCpu: cpu,
+        isCpu: visibleAsCpu,
         tiles: _hands[player].length,
       );
     }
@@ -1757,7 +1920,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       );
       return _TeamsPlayerProfileData(
         player: player,
-        name: profile?.initials ?? (_isSpanish ? 'Tú' : 'You'),
+        name: profile?.effectiveDisplayName ?? (_isSpanish ? 'Tú' : 'You'),
         publicId: profile?.publicId ?? 'PLAYER',
         countryCode: profile?.countryCode ?? 'US',
         flagEmoji:
@@ -1909,7 +2072,8 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     final data = _playerProfileData(player);
     final tier = DominoTierVisual.fromScore(data.points, ranked: !data.isCpu);
     final visualProfile = DominoPlayerProfile(
-      initials: data.name,
+      initials: DominoPlayerProfile.initialsForDisplayName(data.name),
+      displayName: data.name,
       countryCode:
           RegExp(r'^[A-Z]{2}$').hasMatch(data.countryCode)
               ? data.countryCode
@@ -2168,6 +2332,66 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     });
   }
 
+  void _maybeSendOnlinePlayerReaction({
+    required TeamsOnlineGame game,
+    required String actionType,
+    required Map<String, dynamic> action,
+  }) {
+    if (!_isOnline) return;
+    // Only one real client coordinates fallback reactions. Without this
+    // guard, every connected phone could schedule a different message for the
+    // same play.
+    if (!DominoTeamsCpuScreen.coordinatesFallbackReactions(
+      currentPlayerId: widget.onlinePlayerId ?? '',
+      players: game.players,
+    )) {
+      return;
+    }
+    final roundPass = (action['roundPassBonus'] as num?)?.toInt() ?? 0;
+    final special = action['special'] as String?;
+    final isInteresting =
+        actionType == 'pass' ||
+        roundPass > 0 ||
+        special == 'capicua' ||
+        special == 'chuchazo';
+    if (!isInteresting) return;
+
+    // Keep the chat occasional. A response is more likely for a big play and
+    // less likely for an ordinary pass, just like a relaxed real table.
+    final chance = roundPass > 0 || special != null ? 0.64 : 0.27;
+    if (_random.nextDouble() > chance) return;
+    final candidates = <int>[
+      for (var seat = 0; seat < game.players.length; seat++)
+        if (game.players[seat].isFallbackOnlinePlayer &&
+            seat != (action['player'] as num?)?.toInt())
+          seat,
+    ];
+    if (candidates.isEmpty) return;
+    final messages =
+        special == 'capicua' || special == 'chuchazo'
+            ? const ['wow', 'fire', 'wellPlayed']
+            : roundPass > 0
+            ? const ['fire', 'wellPlayed', 'wow', 'thanks']
+            : const ['oops', 'laugh', 'goodLuck', 'wellPlayed'];
+    final seat = candidates[_random.nextInt(candidates.length)];
+    final messageId = messages[_random.nextInt(messages.length)];
+    final revision = game.revision;
+    Future<void>.delayed(
+      Duration(milliseconds: 500 + _random.nextInt(900)),
+      () async {
+        if (!mounted || _onlineRevision != revision) return;
+        final service = _onlineService;
+        final gameId = widget.onlineGameId;
+        if (service == null || gameId == null) return;
+        await service.sendCpuQuickChat(
+          gameId: gameId,
+          seat: seat,
+          messageId: messageId,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Rebuild the table immediately after the player equips a cosmetic.
@@ -2187,7 +2411,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
             onPressed:
                 _isOnline
                     ? () => unawaited(_confirmLeaveOnlineMatch())
-                    : () => Navigator.maybePop(context),
+                    : _returnFromCpuGame,
             icon: const Icon(Icons.arrow_back_rounded),
             tooltip:
                 _isOnline
@@ -2297,26 +2521,20 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                     Column(
                       children: [
                         _scoreBar(),
-                        _partnerBar(),
                         Expanded(child: _boardView()),
                         _handView(),
                       ],
                     ),
-                    Positioned(
-                      left: 8,
-                      top: 54,
-                      width: 58,
-                      child: _verticalRival(3),
-                    ),
-                    Positioned(
-                      right: 8,
-                      top: 54,
-                      width: 58,
-                      child: _verticalRival(1),
-                    ),
-                    if (_roundOver && !_showFinalHand)
+                    if (_roundOver &&
+                        !_blockResultPending &&
+                        !_showFinalHand &&
+                        _specialEffectKind == null)
                       Positioned.fill(
                         child: DominoResultCelebration(
+                          maxContentWidth:
+                              defaultTargetPlatform == TargetPlatform.macOS
+                                  ? 720
+                                  : 430,
                           showConfetti: _teamScores.any(
                             (score) => score >= _scoreTarget,
                           ),
@@ -2330,16 +2548,26 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                         top: 4,
                         child: _finalHandBanner(),
                       ),
+                    if (_specialEffectKind != null)
+                      Positioned.fill(
+                        child: DominoSpecialPlayEffect(
+                          key: ValueKey(
+                            'special-effect-$_specialEffectSequence',
+                          ),
+                          kind: _specialEffectKind!,
+                          sequence: _specialEffectSequence,
+                          spanish: _isSpanish,
+                          playerName: _specialEffectPlayerName,
+                        ),
+                      ),
                     Positioned(
                       left: 58,
                       right: 58,
                       top: 104,
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _passNotification(),
-                          _quickChatNotification(),
-                        ],
+                        mainAxisSize: MainAxisSize.max,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [_quickChatNotification()],
                       ),
                     ),
                     if (_sideChoiceTile != null)
@@ -2390,92 +2618,6 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  String _passNoticeText(int player) {
-    if (player == 0) return _isSpanish ? 'Tú pasas' : 'You pass';
-    return '${_playerName(player)} ${_isSpanish ? 'pasa' : 'passes'}';
-  }
-
-  Widget _passNotification() {
-    final player = _passNoticePlayer;
-    return IgnorePointer(
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        reverseDuration: const Duration(milliseconds: 180),
-        transitionBuilder:
-            (child, animation) => FadeTransition(
-              opacity: animation,
-              child: ScaleTransition(
-                scale: Tween<double>(begin: 0.9, end: 1).animate(
-                  CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
-                ),
-                child: child,
-              ),
-            ),
-        child:
-            player == null
-                ? const SizedBox.shrink(key: ValueKey('no-pass-notice'))
-                : Semantics(
-                  key: ValueKey('pass-notice-$_passNoticeSequence-$player'),
-                  liveRegion: true,
-                  label: _passNoticeText(player),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 9,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xF2111A24),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color:
-                            player.isEven
-                                ? const Color(0xFF64B5F6)
-                                : const Color(0xFFFF5C64),
-                        width: 2,
-                      ),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Colors.black54,
-                          blurRadius: 12,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.skip_next_rounded,
-                          color:
-                              player.isEven
-                                  ? const Color(0xFF64B5F6)
-                                  : const Color(0xFFFF5C64),
-                          size: 22,
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              _passNoticeText(player),
-                              maxLines: 1,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
       ),
     );
   }
@@ -2670,6 +2812,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   }
 
   Widget _buildTeamsResultCard() {
+    final isMac = defaultTargetPlatform == TargetPlatform.macOS;
     final winnerPlayer = _resultWinnerPlayer ?? 0;
     final winnerTeam = _teamFor(winnerPlayer);
     final loserTeam = 1 - winnerTeam;
@@ -2684,7 +2827,10 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       _ => null,
     };
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      padding: EdgeInsets.symmetric(
+        horizontal: isMac ? 20 : 8,
+        vertical: isMac ? 18 : 10,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2701,63 +2847,66 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                         ? '¡$winnerLabel gana la mano!'
                         : '$winnerLabel wins the hand!')),
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 24,
+              fontSize: isMac ? 38 : 24,
               fontWeight: FontWeight.w900,
-              shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+              shadows: const [Shadow(color: Colors.black54, blurRadius: 8)],
             ),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: isMac ? 8 : 4),
           Text(
             '+$_resultPoints ${_isSpanish ? 'puntos' : 'points'}',
-            style: const TextStyle(
+            style: TextStyle(
               color: Color(0xFFFFD36B),
-              fontSize: 20,
+              fontSize: isMac ? 30 : 20,
               fontWeight: FontWeight.w900,
             ),
           ),
           if (special != null)
             Text(
               special,
-              style: const TextStyle(
+              style: TextStyle(
                 color: Colors.white,
-                fontSize: 14,
+                fontSize: isMac ? 21 : 14,
                 fontWeight: FontWeight.w900,
               ),
             ),
-          const SizedBox(height: 8),
+          SizedBox(height: isMac ? 16 : 8),
           _resultTeamPanel(
             team: winnerTeam,
             winnerPlayer: winnerPlayer,
             winner: true,
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: isMac ? 14 : 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+            padding: EdgeInsets.symmetric(
+              horizontal: isMac ? 26 : 16,
+              vertical: isMac ? 11 : 7,
+            ),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.76),
               borderRadius: BorderRadius.circular(22),
             ),
             child: Text(
               '${_isSpanish ? 'Nosotros' : 'Us'} ${_teamScores[0]}/$_scoreTarget  •  ${_isSpanish ? 'Rivales' : 'Rivals'} ${_teamScores[1]}/$_scoreTarget',
-              style: const TextStyle(
+              style: TextStyle(
                 color: Colors.white,
-                fontSize: 14,
+                fontSize: isMac ? 20 : 14,
                 fontWeight: FontWeight.w900,
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: isMac ? 14 : 8),
           _resultTeamPanel(
             team: loserTeam,
             winnerPlayer: winnerPlayer,
             winner: false,
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: isMac ? 18 : 10),
           SizedBox(
             width: double.infinity,
-            height: 44,
+            height: isMac ? 62 : 44,
             child: OutlinedButton.icon(
               onPressed: () => setState(() => _showFinalHand = true),
               style: OutlinedButton.styleFrom(
@@ -2773,17 +2922,42 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                 _resultBlocked
                     ? (_isSpanish ? 'Ver la tranca' : 'View blocked hand')
                     : (_isSpanish ? 'Ver mano final' : 'View final hand'),
-                style: const TextStyle(
-                  fontSize: 15,
+                style: TextStyle(
+                  fontSize: isMac ? 20 : 15,
                   fontWeight: FontWeight.w900,
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: isMac ? 12 : 8),
+          if (_isOnline && matchOver) ...[
+            SizedBox(
+              width: double.infinity,
+              height: isMac ? 62 : 46,
+              child: OutlinedButton.icon(
+                onPressed: _exitCompletedOnlineMatch,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Color(0xFF64B5F6), width: 1.6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+                icon: const Icon(Icons.exit_to_app_rounded),
+                label: Text(
+                  _isSpanish ? 'Salir al lobby' : 'Exit to lobby',
+                  style: TextStyle(
+                    fontSize: isMac ? 20 : 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: isMac ? 12 : 8),
+          ],
           SizedBox(
             width: double.infinity,
-            height: 48,
+            height: isMac ? 66 : 48,
             child: FilledButton.icon(
               onPressed: _nextRound,
               style: FilledButton.styleFrom(
@@ -2798,13 +2972,42 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                 matchOver
                     ? (_isSpanish ? 'Jugar otra vez' : 'Play again')
                     : (_isSpanish ? 'Siguiente mano' : 'Next hand'),
-                style: const TextStyle(
-                  fontSize: 16,
+                style: TextStyle(
+                  fontSize: isMac ? 22 : 16,
                   fontWeight: FontWeight.w900,
                 ),
               ),
             ),
           ),
+          if (matchOver) ...[
+            SizedBox(height: isMac ? 12 : 8),
+            SizedBox(
+              width: double.infinity,
+              height: isMac ? 62 : 46,
+              child: OutlinedButton.icon(
+                key: const ValueKey('teams-result-choose-mode'),
+                onPressed: _returnToGameModeSelection,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: const Color(
+                    0xFF071524,
+                  ).withValues(alpha: 0.74),
+                  side: const BorderSide(color: Color(0xFFFFD36B), width: 1.6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+                icon: const Icon(Icons.grid_view_rounded),
+                label: Text(
+                  _isSpanish ? 'Elegir modo de juego' : 'Choose game mode',
+                  style: TextStyle(
+                    fontSize: isMac ? 20 : 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2815,6 +3018,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     required int winnerPlayer,
     required bool winner,
   }) {
+    final isMac = defaultTargetPlatform == TargetPlatform.macOS;
     final players = team == 0 ? <int>[0, 2] : <int>[1, 3];
     if (players.contains(winnerPlayer)) {
       players
@@ -2823,7 +3027,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     }
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(8),
+      padding: EdgeInsets.all(isMac ? 15 : 8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: winner ? 0.40 : 0.30),
         borderRadius: BorderRadius.circular(18),
@@ -2835,7 +3039,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       child: Column(
         children: [
           for (var index = 0; index < players.length; index++) ...[
-            if (index > 0) const SizedBox(height: 6),
+            if (index > 0) SizedBox(height: isMac ? 12 : 6),
             _resultPlayerRow(players[index], winnerPlayer == players[index]),
           ],
         ],
@@ -2844,18 +3048,17 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   }
 
   Widget _resultPlayerRow(int player, bool dominated) {
+    final isMac = defaultTargetPlatform == TargetPlatform.macOS;
     final tiles = _hands[player];
     final points = tiles.fold(0, (total, tile) => total + tile.points);
+    final profileData = _playerProfileData(player);
     final icon =
-        player == 0
-            ? (_profile?.icon ?? Icons.person_rounded)
-            : (player == 2
-                ? Icons.people_alt_rounded
-                : Icons.smart_toy_rounded);
-    final name =
-        player == 0
-            ? (_profile?.initials ?? _playerName(player))
-            : _playerName(player);
+        profileData.isCpu
+            ? Icons.smart_toy_rounded
+            : (player == 0
+                ? (_profile?.icon ?? Icons.person_rounded)
+                : Icons.person_rounded);
+    final name = player == 0 ? profileData.name : _playerName(player);
     return Semantics(
       button: true,
       label: _isSpanish ? 'Abrir perfil de $name' : 'Open $name profile',
@@ -2866,36 +3069,24 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
         borderRadius: BorderRadius.circular(12),
         child: Row(
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: const Color(0xFF202830),
-                borderRadius: BorderRadius.circular(11),
-                border: Border.all(color: Colors.white70),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child:
-                  player == 0 && _profile != null
-                      ? DominoAvatarVisual(
-                        avatarKey: _profile!.avatarKey,
-                        fallbackIcon: icon,
-                        backgroundColor: const Color(0xFF202830),
-                      )
-                      : Icon(icon, color: Colors.white, size: 24),
+            TeamsResultPlayerAvatar(
+              player: player,
+              avatarKey: profileData.avatarKey,
+              fallbackIcon: icon,
+              size: isMac ? 68 : 38,
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: isMac ? 14 : 8),
             SizedBox(
-              width: 74,
+              width: isMac ? 150 : 74,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     name,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
-                      fontSize: 13,
+                      fontSize: isMac ? 21 : 13,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -2908,7 +3099,7 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                     style: TextStyle(
                       color:
                           dominated ? const Color(0xFFFFD36B) : Colors.white70,
-                      fontSize: 10,
+                      fontSize: isMac ? 15 : 10,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -2921,21 +3112,21 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                       ? Text(
                         _isSpanish ? 'Sin fichas' : 'No tiles',
                         textAlign: TextAlign.right,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white70,
-                          fontSize: 11,
+                          fontSize: isMac ? 16 : 11,
                           fontWeight: FontWeight.w800,
                         ),
                       )
                       : Wrap(
                         alignment: WrapAlignment.end,
-                        spacing: 2,
-                        runSpacing: 2,
+                        spacing: isMac ? 5 : 2,
+                        runSpacing: isMac ? 5 : 2,
                         children: [
                           for (final tile in tiles)
                             SizedBox(
-                              width: 20,
-                              height: 36,
+                              width: isMac ? 34 : 20,
+                              height: isMac ? 58 : 36,
                               child: FittedBox(
                                 child: _tileWidget(tile, small: true),
                               ),
@@ -2949,17 +3140,63 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     );
   }
 
-  Widget _partnerBar() => LayoutBuilder(
+  Widget _partnerBar({
+    bool insideTable = false,
+    required bool hiddenTilesCompact,
+  }) => LayoutBuilder(
     builder: (context, constraints) {
-      // Keep this panel strictly between the two rival racks on narrow phones.
-      final compact = constraints.maxWidth < 390;
-      final availableMiddleWidth = max(160.0, constraints.maxWidth - 148);
-      final panelWidth = min(280.0, availableMiddleWidth);
-      final fullName = _playerName(2);
-      final displayName =
-          compact && fullName.length > 8
-              ? (_isSpanish ? 'Pareja' : 'Partner')
-              : fullName;
+      final largeTable = insideTable && _isTablet;
+      final compact =
+          !largeTable && constraints.maxWidth < (insideTable ? 230 : 390);
+      final availableMiddleWidth =
+          insideTable
+              ? constraints.maxWidth
+              : max(160.0, constraints.maxWidth - 148);
+      final showOnlineAvatar = _onlinePanelUsesAvatar(2);
+      final partnerProfile = _playerProfileData(2);
+      final displayName = partnerProfile.name;
+      final partnerFlag = partnerProfile.flagEmoji.trim();
+      final showPartnerFlag =
+          showOnlineAvatar && partnerFlag.isNotEmpty && partnerFlag != '🤖';
+      final avatarSize = largeTable ? 44.0 : (compact ? 27.0 : 31.0);
+      final contentPadding = largeTable ? 12.0 : (compact ? 6.0 : 8.0);
+      final contentGap = largeTable ? 10.0 : (compact ? 4.0 : 8.0);
+      final nameStyle = TextStyle(
+        color: Colors.white,
+        fontSize: largeTable ? 18 : (compact ? 12 : 13),
+        fontWeight: FontWeight.w900,
+      );
+      final namePainter = TextPainter(
+        text: TextSpan(text: displayName, style: nameStyle),
+        textDirection: Directionality.of(context),
+        maxLines: 1,
+      )..layout();
+      final hiddenTileWidth =
+          largeTable ? 22.0 : (hiddenTilesCompact ? 14.0 : 16.0);
+      final hiddenTileGap = largeTable ? 3.0 : (hiddenTilesCompact ? 1.0 : 2.0);
+      final hiddenTileCount = _hands[2].length;
+      final rackWidth =
+          (hiddenTileWidth * hiddenTileCount) +
+          (hiddenTileGap * max(0, hiddenTileCount - 1));
+      final nameWidth = min(
+        namePainter.width,
+        largeTable ? 196.0 : (compact ? 82.0 : 132.0),
+      );
+      final desiredPanelWidth =
+          (contentPadding * 2) +
+          avatarSize +
+          contentGap +
+          nameWidth +
+          contentGap +
+          rackWidth +
+          (showPartnerFlag ? contentGap + avatarSize : 0);
+      final panelWidth = min(
+        desiredPanelWidth,
+        min(
+          insideTable ? (largeTable ? 560.0 : 400.0) : 360.0,
+          availableMiddleWidth,
+        ),
+      );
       return Align(
         alignment: Alignment.topCenter,
         child: SizedBox(
@@ -2975,51 +3212,136 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
               key: const ValueKey('teams-player-profile-2'),
               onTap: () => _showPlayerProfile(2),
               borderRadius: BorderRadius.circular(14),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                margin: const EdgeInsets.only(bottom: 4),
-                padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 7 : 12,
-                  vertical: compact ? 5 : 6,
-                ),
-                decoration: BoxDecoration(
-                  color:
-                      _turn == 2 && !_roundOver
-                          ? const Color(0xFF245A48)
-                          : const Color(0xE6101820),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: const Color(0xFF64B5F6),
-                    width: _turn == 2 && !_roundOver ? 2.5 : 1.2,
-                  ),
-                ),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.people_alt_rounded,
-                        color: Color(0xFF64B5F6),
-                        size: 17,
-                      ),
-                      SizedBox(width: compact ? 4 : 8),
-                      Text(
-                        '$displayName ${_hands[2].length}',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: compact ? 12 : 13,
-                          fontWeight: FontWeight.w900,
+              child: SizedBox(
+                height: largeTable ? 64 : 44,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned.fill(
+                      left: largeTable ? 6 : (compact ? 4 : 5),
+                      right: largeTable ? 6 : (compact ? 4 : 5),
+                      top: largeTable ? 10 : (compact ? 14 : 12),
+                      bottom: largeTable ? 10 : (compact ? 14 : 12),
+                      child: AnimatedContainer(
+                        key: const ValueKey('teams-player-partner-panel'),
+                        duration: const Duration(milliseconds: 220),
+                        decoration: BoxDecoration(
+                          color:
+                              _turn == 2 && !_roundOver
+                                  ? const Color(0xFF174D73)
+                                  : const Color(0xE6101820),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: const Color(0xFF64B5F6),
+                            width: _turn == 2 && !_roundOver ? 2.5 : 1.2,
+                          ),
+                          boxShadow:
+                              _turn == 2 && !_roundOver
+                                  ? [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF64B5F6,
+                                      ).withValues(alpha: 0.42),
+                                      blurRadius: 10,
+                                    ),
+                                  ]
+                                  : const [],
                         ),
                       ),
-                      SizedBox(width: compact ? 4 : 8),
-                      _hiddenRack(
-                        _hands[2].length,
-                        Axis.horizontal,
-                        compact: compact,
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: largeTable ? 12 : (compact ? 6 : 8),
                       ),
-                    ],
-                  ),
+                      child: Row(
+                        key: const ValueKey('teams-player-partner-content'),
+                        mainAxisSize: MainAxisSize.max,
+                        children: [
+                          Container(
+                            key: const ValueKey('teams-player-partner-avatar'),
+                            width: avatarSize,
+                            height: avatarSize,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF102737),
+                              borderRadius: BorderRadius.circular(9),
+                              border: Border.all(
+                                color: const Color(0xFF64B5F6),
+                                width: 1.2,
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.black45,
+                                  blurRadius: 5,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: DominoAvatarVisual(
+                              avatarKey: partnerProfile.avatarKey,
+                              fallbackIcon: Icons.person_rounded,
+                              backgroundColor: const Color(0xFF102737),
+                            ),
+                          ),
+                          SizedBox(width: largeTable ? 10 : (compact ? 4 : 8)),
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                displayName,
+                                key: const ValueKey(
+                                  'teams-player-partner-name',
+                                ),
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.visible,
+                                textAlign: TextAlign.left,
+                                style: nameStyle,
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: compact ? 4 : 8),
+                          KeyedSubtree(
+                            key: const ValueKey('teams-player-partner-rack'),
+                            child: _hiddenRack(
+                              _hands[2].length,
+                              Axis.horizontal,
+                              compact: hiddenTilesCompact,
+                              large: largeTable,
+                            ),
+                          ),
+                          if (showPartnerFlag) ...[
+                            SizedBox(
+                              width: largeTable ? 10 : (compact ? 4 : 8),
+                            ),
+                            SizedBox(
+                              key: const ValueKey('teams-player-partner-flag'),
+                              width: avatarSize,
+                              height: avatarSize,
+                              child: FittedBox(
+                                fit: BoxFit.contain,
+                                child: Text(
+                                  partnerFlag,
+                                  style: TextStyle(
+                                    fontSize: avatarSize,
+                                    height: 1,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Colors.black87,
+                                        blurRadius: 3,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -3082,9 +3404,15 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     ),
   );
 
-  Widget _verticalRival(int player) {
+  Widget _verticalRival(
+    int player, {
+    bool compact = false,
+    required bool isLeft,
+  }) {
     final active = _turn == player && !_roundOver;
-    final name = _playerName(player);
+    final showOnlineAvatar = _onlinePanelUsesAvatar(player);
+    final profileData = _playerProfileData(player);
+    final name = profileData.name;
     return Semantics(
       button: true,
       label: _isSpanish ? 'Abrir perfil de $name' : 'Open $name profile',
@@ -3094,46 +3422,65 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
         onTap: () => _showPlayerProfile(player),
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 260),
-          opacity: active ? 1 : 0.34,
-          child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
-              decoration: BoxDecoration(
-                color: active ? const Color(0xFF245A48) : Colors.black38,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFFFF6B6B),
-                  width: active ? 2.5 : 1.2,
-                ),
-                boxShadow:
-                    active
-                        ? [
-                          BoxShadow(
-                            color: const Color(
-                              0xFFFFD36B,
-                            ).withValues(alpha: 0.5),
-                            blurRadius: 10,
-                          ),
-                        ]
-                        : const [],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w900,
+          opacity: active ? 1 : 0.92,
+          child: Align(
+            alignment: isLeft ? Alignment.centerLeft : Alignment.centerRight,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Positioned.fill(
+                  left: compact ? 6 : 7,
+                  right: compact ? 6 : 7,
+                  top: compact ? 5 : 6,
+                  bottom: compact ? 5 : 6,
+                  child: AnimatedContainer(
+                    key: ValueKey('teams-player-side-panel-$player'),
+                    duration: const Duration(milliseconds: 220),
+                    decoration: BoxDecoration(
+                      color: active ? const Color(0xFF245A48) : Colors.black38,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: const Color(0xFFFF6B6B),
+                        width: active ? 2.5 : 1.2,
+                      ),
+                      boxShadow:
+                          active
+                              ? [
+                                BoxShadow(
+                                  color: const Color(
+                                    0xFFFFD36B,
+                                  ).withValues(alpha: 0.5),
+                                  blurRadius: 10,
+                                ),
+                              ]
+                              : const [],
                     ),
                   ),
-                  const SizedBox(height: 5),
-                  _hiddenRack(_hands[player].length, Axis.vertical),
-                ],
-              ),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    vertical: _isTablet ? 5 : (compact ? 2 : 3),
+                  ),
+                  child: TeamsSideRivalIdentity(
+                    player: player,
+                    isLeft: isLeft,
+                    compact: compact,
+                    large: _isTablet,
+                    showOnlineAvatar: showOnlineAvatar,
+                    name: name,
+                    avatarKey: profileData.avatarKey,
+                    flagEmoji: showOnlineAvatar ? profileData.flagEmoji : '',
+                    rack: _hiddenRack(
+                      _hands[player].length,
+                      Axis.vertical,
+                      compact: compact,
+                      sideRival: true,
+                      large: _isTablet,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -3141,29 +3488,34 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     );
   }
 
-  Widget _hiddenRack(int count, Axis axis, {bool compact = false}) {
+  bool _onlinePanelUsesAvatar(int player) {
+    if (!_isOnline || player < 0 || player >= _onlinePlayers.length) {
+      return false;
+    }
+    final onlinePlayer = _onlinePlayers[player];
+    return !onlinePlayer.isCpu ||
+        onlinePlayer.isFallbackOnlinePlayer ||
+        onlinePlayer.replacedPlayer;
+  }
+
+  Widget _hiddenRack(
+    int count,
+    Axis axis, {
+    bool compact = false,
+    bool sideRival = false,
+    bool large = false,
+  }) {
+    final longEdge = large ? 50.0 : (compact ? 32.0 : 36.0);
+    final shortEdge = large ? 22.0 : (compact ? 14.0 : 16.0);
     final tiles = List<Widget>.generate(
       count,
-      (_) => Container(
-        width:
-            axis == Axis.horizontal ? (compact ? 9 : 13) : (compact ? 20 : 23),
-        height:
-            axis == Axis.horizontal ? (compact ? 19 : 23) : (compact ? 11 : 13),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E88E5),
-          borderRadius: BorderRadius.circular(3),
-          border: Border.all(color: const Color(0xFFB8DCFF), width: 1.2),
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black38,
-              blurRadius: 2,
-              offset: Offset(1, 1),
-            ),
-          ],
+      (index) => TeamsHiddenDominoBack(
+        key: ValueKey(
+          'teams-hidden-tile-${axis.name}-${sideRival ? 'side' : 'partner'}-$index',
         ),
-        child: const Center(
-          child: Icon(Icons.circle, color: Colors.white54, size: 3),
-        ),
+        width: axis == Axis.horizontal ? shortEdge : longEdge,
+        height: axis == Axis.horizontal ? longEdge : shortEdge,
+        opacity: 0.80,
       ),
     );
     final spaced = <Widget>[];
@@ -3171,8 +3523,8 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
       if (i > 0) {
         spaced.add(
           axis == Axis.horizontal
-              ? SizedBox(width: compact ? 1 : 2)
-              : SizedBox(height: compact ? 1 : 2),
+              ? SizedBox(width: large ? 3 : (compact ? 1 : 2))
+              : SizedBox(height: large ? 3 : (compact ? 1 : 2)),
         );
       }
       spaced.add(tiles[i]);
@@ -3186,7 +3538,17 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
     final tableStyle = KapiCosmeticsService.instance.equipped(
       KapiCosmeticType.table,
     );
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final compactTable = viewportWidth < 430;
+    final sideWidth = _isTablet ? 122.0 : (compactTable ? 70.0 : 84.0);
+    final profileTop = _isTablet ? 18.0 : (compactTable ? 10.0 : 14.0);
+    final playedAreaTop = profileTop + (_isTablet ? 74.0 : 52.0);
+    // The painted phone rails use at most 36 logical pixels. A stable 38 px
+    // inset keeps the animated dominoes clear while reclaiming the unused
+    // width that previously made Pro Max boards shrink too soon.
+    final playedAreaSideInset = _isTablet ? 68.0 : 38.0;
     return Container(
+      key: const ValueKey('teams-board-table'),
       margin: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: tableStyle.primary,
@@ -3209,8 +3571,41 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
           const Positioned.fill(
             child: KapiCenterpieceOverlay(maxFraction: .44, opacity: .30),
           ),
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: sideWidth,
+                child: _verticalRival(3, compact: compactTable, isLeft: true),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: SizedBox(
+                width: sideWidth,
+                child: _verticalRival(1, compact: compactTable, isLeft: false),
+              ),
+            ),
+          ),
+          Positioned(
+            left: compactTable ? 12 : 14,
+            right: compactTable ? 12 : 14,
+            top: profileTop,
+            child: _partnerBar(
+              insideTable: true,
+              hiddenTilesCompact: compactTable,
+            ),
+          ),
           Padding(
-            padding: const EdgeInsets.all(8),
+            key: const ValueKey('teams-played-area'),
+            padding: EdgeInsets.fromLTRB(
+              playedAreaSideInset,
+              playedAreaTop,
+              playedAreaSideInset,
+              8,
+            ),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 if (_board.isEmpty) return _waitingForOpeningTile();
@@ -3222,22 +3617,8 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                   (tile) => identical(tile, opening),
                 );
                 if (openingIndex < 0) openingIndex = _board.indexOf(opening);
-                final layouts = _layoutEngine.build(
-                  board: [
-                    for (final tile in _board)
-                      TeamBoardTileSpec(
-                        isDouble: tile.isDouble,
-                        left: tile.left,
-                        right: tile.right,
-                      ),
-                  ],
-                  openingIndex: max(0, openingIndex),
-                  openingVertical: _openingIsVertical(opening),
-                  startsHorizontally: _openingChainStartsHorizontally(opening),
-                );
-                assert(
-                  TeamBoardLayoutEngine.debugValidatePlacements(layouts),
-                  'The visual domino path is disconnected or has a false contact.',
+                final startsHorizontally = _openingChainStartsHorizontally(
+                  opening,
                 );
                 final visualBoard = <TeamBoardTileSpec>[
                   for (final tile in _board)
@@ -3247,6 +3628,36 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                       right: tile.right,
                     ),
                 ];
+                final preferredBoardShortEdge =
+                    _isTablet
+                        ? 75.6
+                        : (viewportWidth * 0.10).clamp(36.0, 42.0).toDouble();
+                final preferredBoardScale =
+                    (preferredBoardShortEdge / 30.0) * _playedTileScale;
+                final layoutChoice = TeamBoardLayoutEngine.bestFit(
+                  board: visualBoard,
+                  openingIndex: max(0, openingIndex),
+                  openingVertical: _openingIsVertical(opening),
+                  startsHorizontally: startsHorizontally,
+                  availableSize: constraints.biggest,
+                  preferredScale: preferredBoardScale,
+                  baseLongRunLength:
+                      TeamBoardLayoutEngine.responsiveLongRunLengthForWidth(
+                        viewportWidth,
+                        startsHorizontally: startsHorizontally,
+                      ),
+                  edgeRunLength:
+                      TeamBoardLayoutEngine.responsiveEdgeRunLengthForWidth(
+                        viewportWidth,
+                        startsHorizontally: startsHorizontally,
+                      ),
+                );
+                final responsiveLayoutEngine = layoutChoice.engine;
+                final layouts = layoutChoice.placements;
+                assert(
+                  TeamBoardLayoutEngine.debugValidatePlacements(layouts),
+                  'The visual domino path is disconnected or has a false contact.',
+                );
                 if (!TeamBoardLayoutEngine.validateVisualConnections(
                   board: visualBoard,
                   placements: layouts,
@@ -3259,94 +3670,120 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                 final choiceTile = _sideChoiceTile;
                 if (choiceTile != null) {
                   previews
-                    ..add(_previewForSide(_Side.left, choiceTile))
-                    ..add(_previewForSide(_Side.right, choiceTile));
+                    ..add(
+                      _previewForSide(
+                        _Side.left,
+                        choiceTile,
+                        layoutEngine: responsiveLayoutEngine,
+                      ),
+                    )
+                    ..add(
+                      _previewForSide(
+                        _Side.right,
+                        choiceTile,
+                        layoutEngine: responsiveLayoutEngine,
+                      ),
+                    );
                 }
-                var bounds = TeamBoardLayoutEngine.boundsFor(layouts);
+                final boardBounds = TeamBoardLayoutEngine.boundsFor(
+                  layouts,
+                  padding: 0,
+                );
+                var contentBounds = boardBounds;
                 for (final preview in previews) {
-                  bounds = bounds.expandToInclude(
-                    TeamBoardLayoutEngine.rectFor(preview.placement).inflate(8),
+                  contentBounds = contentBounds.expandToInclude(
+                    TeamBoardLayoutEngine.rectFor(preview.placement),
                   );
                 }
-                final boardScale = min(
-                  1.75 * _effectivePlayedTileScale,
-                  min(
-                    constraints.maxWidth / bounds.width,
-                    constraints.maxHeight / bounds.height,
-                  ),
+                final cameraFit = TeamBoardLayoutEngine.centeredFit(
+                  bounds: contentBounds,
+                  availableSize: constraints.biggest,
+                  preferredScale: preferredBoardScale,
                 );
-                final fittedLeft =
-                    (constraints.maxWidth - bounds.width * boardScale) / 2;
-                final fittedTop =
-                    (constraints.maxHeight - bounds.height * boardScale) / 2;
-                Offset fittedOffset(int index) => Offset(
-                  fittedLeft +
-                      (TeamBoardLayoutEngine.rectFor(layouts[index]).left -
-                              bounds.left) *
-                          boardScale,
-                  fittedTop +
-                      (TeamBoardLayoutEngine.rectFor(layouts[index]).top -
-                              bounds.top) *
-                          boardScale,
+                final targetCamera = _TeamBoardCamera(
+                  scale: cameraFit.scale,
+                  translation: cameraFit.translation,
                 );
-                Offset fittedPreviewOffset(TeamBoardPlacement placement) =>
-                    Offset(
-                      fittedLeft +
-                          (TeamBoardLayoutEngine.rectFor(placement).left -
-                                  bounds.left) *
-                              boardScale,
-                      fittedTop +
-                          (TeamBoardLayoutEngine.rectFor(placement).top -
-                                  bounds.top) *
-                              boardScale,
-                    );
 
-                return Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    for (var index = 0; index < _board.length; index++)
-                      AnimatedPositioned(
-                        key: ObjectKey(_board[index]),
-                        duration: const Duration(milliseconds: 480),
-                        curve: Curves.easeInOutCubic,
-                        left: fittedOffset(index).dx,
-                        top: fittedOffset(index).dy,
-                        child: TweenAnimationBuilder<double>(
-                          duration: const Duration(milliseconds: 460),
-                          curve: Curves.easeOutBack,
-                          tween: Tween(
-                            begin:
-                                identical(_board[index], _lastPlacedTile)
-                                    ? boardScale * 0.35
-                                    : boardScale,
-                            end: boardScale,
-                          ),
-                          builder:
-                              (context, value, child) => Transform.scale(
-                                alignment: Alignment.topLeft,
-                                scale: value,
-                                child: Opacity(
-                                  opacity: (value / boardScale).clamp(0, 1),
-                                  child: child,
+                return TweenAnimationBuilder<_TeamBoardCamera>(
+                  duration: const Duration(milliseconds: 420),
+                  curve: Curves.easeInOutCubic,
+                  tween: _TeamBoardCameraTween(
+                    begin: targetCamera,
+                    end: targetCamera,
+                  ),
+                  builder: (context, camera, _) {
+                    Offset fittedOffset(int index) {
+                      final rect = TeamBoardLayoutEngine.rectFor(
+                        layouts[index],
+                      );
+                      return camera.translation + rect.topLeft * camera.scale;
+                    }
+
+                    Offset fittedPreviewOffset(TeamBoardPlacement placement) {
+                      final rect = TeamBoardLayoutEngine.rectFor(placement);
+                      return camera.translation + rect.topLeft * camera.scale;
+                    }
+
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        for (var index = 0; index < _board.length; index++)
+                          Positioned(
+                            key: ValueKey(
+                              'teams-board-tile-${_board[index].id}',
+                            ),
+                            left: fittedOffset(index).dx,
+                            top: fittedOffset(index).dy,
+                            child: Transform.scale(
+                              alignment: Alignment.topLeft,
+                              scale: camera.scale,
+                              child: TweenAnimationBuilder<double>(
+                                duration: const Duration(milliseconds: 460),
+                                curve: Curves.easeOutBack,
+                                tween: Tween(
+                                  begin:
+                                      identical(_board[index], _lastPlacedTile)
+                                          ? 0.35
+                                          : 1,
+                                  end: 1,
+                                ),
+                                builder:
+                                    (context, arrivalScale, child) =>
+                                        Transform.scale(
+                                          alignment: Alignment.center,
+                                          scale: arrivalScale,
+                                          child: Opacity(
+                                            opacity:
+                                                identical(
+                                                      _board[index],
+                                                      _lastPlacedTile,
+                                                    )
+                                                    ? arrivalScale.clamp(0, 1)
+                                                    : 1,
+                                            child: child,
+                                          ),
+                                        ),
+                                child: _tileWidget(
+                                  layouts[index].flipped
+                                      ? _board[index].flipped
+                                      : _board[index],
+                                  small: true,
+                                  onBoard: true,
+                                  verticalOverride: layouts[index].vertical,
                                 ),
                               ),
-                          child: _tileWidget(
-                            layouts[index].flipped
-                                ? _board[index].flipped
-                                : _board[index],
-                            small: true,
-                            onBoard: true,
-                            verticalOverride: layouts[index].vertical,
+                            ),
                           ),
-                        ),
-                      ),
-                    for (final preview in previews)
-                      _sidePreviewTarget(
-                        preview: preview,
-                        boardScale: boardScale,
-                        offset: fittedPreviewOffset(preview.placement),
-                      ),
-                  ],
+                        for (final preview in previews)
+                          _sidePreviewTarget(
+                            preview: preview,
+                            boardScale: camera.scale,
+                            offset: fittedPreviewOffset(preview.placement),
+                          ),
+                      ],
+                    );
+                  },
                 );
               },
             ),
@@ -3373,7 +3810,9 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
                 : 'Play on the blue tile');
 
     return Positioned(
-      key: ValueKey('side-preview-${preview.side.name}'),
+      // Tie the element to the selected tile as well as the side. Replacing a
+      // hand tile disposes the old red/blue animation instead of reusing it.
+      key: ValueKey('side-preview-${preview.side.name}-${preview.tile.id}'),
       left: offset.dx - tapPadding,
       top: offset.dy - tapPadding,
       child: TeamsSideChoiceTapTarget(
@@ -3845,7 +4284,322 @@ class _DominoTeamsCpuScreenState extends State<DominoTeamsCpuScreen>
   );
 }
 
+/// A single slim side rail: avatar, name and hidden tiles share one axis. The
+/// domino backs are deliberately wider than the painted pill so they stand
+/// out, while the avatar remains upright and easy to recognize.
+class TeamsResultPlayerAvatar extends StatelessWidget {
+  const TeamsResultPlayerAvatar({
+    super.key,
+    required this.player,
+    required this.avatarKey,
+    required this.fallbackIcon,
+    required this.size,
+  });
+
+  final int player;
+  final String avatarKey;
+  final IconData fallbackIcon;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: ValueKey('teams-result-player-avatar-$player'),
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: const Color(0xFF202830),
+      borderRadius: BorderRadius.circular(11),
+      border: Border.all(color: Colors.white70),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: DominoAvatarVisual(
+      avatarKey: avatarKey,
+      fallbackIcon: fallbackIcon,
+      backgroundColor: const Color(0xFF202830),
+    ),
+  );
+}
+
+/// A single slim side rail: avatar, name and hidden tiles share one axis. The
+/// domino backs are deliberately wider than the painted pill so they stand
+/// out, while the avatar remains upright and easy to recognize.
+class TeamsSideRivalIdentity extends StatelessWidget {
+  const TeamsSideRivalIdentity({
+    super.key,
+    required this.player,
+    required this.isLeft,
+    required this.compact,
+    this.large = false,
+    required this.showOnlineAvatar,
+    required this.name,
+    required this.avatarKey,
+    required this.flagEmoji,
+    required this.rack,
+  });
+
+  final int player;
+  final bool isLeft;
+  final bool compact;
+  final bool large;
+  final bool showOnlineAvatar;
+  final String name;
+  final String avatarKey;
+  final String flagEmoji;
+  final Widget rack;
+
+  Widget _avatar() {
+    final size = large ? 44.0 : (compact ? 28.0 : 32.0);
+    return Container(
+      key: ValueKey('teams-player-side-avatar-$player'),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: const Color(0xFF102737),
+        borderRadius: BorderRadius.circular(large ? 13 : (compact ? 8 : 10)),
+        border: Border.all(
+          color: const Color(0xFFFFD36B).withValues(alpha: 0.78),
+          width: 1.2,
+        ),
+        boxShadow: const [
+          BoxShadow(color: Colors.black45, blurRadius: 5, offset: Offset(0, 2)),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: DominoAvatarVisual(
+        avatarKey: avatarKey,
+        fallbackIcon: Icons.person_rounded,
+        backgroundColor: const Color(0xFF102737),
+      ),
+    );
+  }
+
+  Widget _rotatedName() {
+    final rotatedName = RotatedBox(
+      key: ValueKey('teams-player-rotated-name-$player'),
+      quarterTurns: isLeft ? 1 : 3,
+      child: Text(
+        name,
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.visible,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: large ? 14 : (compact ? 10 : 11),
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+    final nameExtent =
+        (name.runes.length * (large ? 8.5 : (compact ? 6.2 : 7.0))).clamp(
+          large ? 70.0 : (compact ? 44.0 : 50.0),
+          large ? 118.0 : (compact ? 76.0 : 88.0),
+        );
+    return SizedBox(
+      key: ValueKey('teams-player-side-name-$player'),
+      width: large ? 29 : (compact ? 20 : 22),
+      height: nameExtent,
+      child: FittedBox(fit: BoxFit.scaleDown, child: rotatedName),
+    );
+  }
+
+  Widget _rack() => KeyedSubtree(
+    key: ValueKey('teams-player-side-rack-$player'),
+    child: rack,
+  );
+
+  Widget _flag() {
+    final size = large ? 44.0 : (compact ? 28.0 : 32.0);
+    return SizedBox(
+      key: ValueKey('teams-player-side-flag-$player'),
+      width: size,
+      height: size,
+      child: FittedBox(
+        fit: BoxFit.contain,
+        child: Text(
+          flagEmoji.trim(),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: size,
+            height: 1,
+            shadows: const [Shadow(color: Colors.black87, blurRadius: 3)],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final avatar = _avatar();
+    final nameWidget = _rotatedName();
+    final rackWidget = _rack();
+    final showFlag =
+        showOnlineAvatar &&
+        flagEmoji.trim().isNotEmpty &&
+        flagEmoji.trim() != '🤖';
+    final gap = SizedBox(height: large ? 5 : (compact ? 2 : 3));
+    final children = <Widget>[
+      avatar,
+      gap,
+      nameWidget,
+      gap,
+      rackWidget,
+      if (showFlag) ...[gap, _flag()],
+    ];
+    return KeyedSubtree(
+      key: ValueKey('teams-player-side-content-$player'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: isLeft ? children : children.reversed.toList(),
+      ),
+    );
+  }
+}
+
+/// A compact domino back for hidden hands. The highlight, center divider and
+/// inner rim make every tile readable while preserving the original footprint.
+class TeamsHiddenDominoBack extends StatelessWidget {
+  const TeamsHiddenDominoBack({
+    super.key,
+    required this.width,
+    required this.height,
+    this.opacity = 1,
+  });
+
+  final double width;
+  final double height;
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    final vertical = height >= width;
+    final radius = min(width, height) * 0.22;
+    return SizedBox(
+      width: width,
+      height: height,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF62B5F4).withValues(alpha: opacity),
+              const Color(0xFF1E88E5).withValues(alpha: opacity),
+              const Color(0xFF0B4F9F).withValues(alpha: opacity),
+            ],
+            stops: const [0, 0.45, 1],
+          ),
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(
+            color: const Color(0xFFD8EEFF).withValues(alpha: 0.92 * opacity),
+            width: 1.1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.38 * opacity),
+              blurRadius: 2.5,
+              offset: const Offset(1, 1.5),
+            ),
+            BoxShadow(
+              color: const Color(0xFF8FD2FF).withValues(alpha: 0.22 * opacity),
+              blurRadius: 2,
+              offset: const Offset(-0.5, -0.5),
+            ),
+          ],
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              margin: const EdgeInsets.all(1.6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(max(1, radius - 1)),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.18 * opacity),
+                  width: 0.7,
+                ),
+              ),
+            ),
+            Align(
+              alignment: const Alignment(0, -0.78),
+              child: Container(
+                width: vertical ? max(2, width - 4) : 1.2,
+                height: vertical ? 1.1 : max(2, height - 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18 * opacity),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Center(
+              child: Container(
+                key: const ValueKey('teams-hidden-domino-divider'),
+                width: vertical ? max(2, width - 4) : 1,
+                height: vertical ? 1 : max(2, height - 4),
+                color: const Color(
+                  0xFF073A79,
+                ).withValues(alpha: 0.62 * opacity),
+              ),
+            ),
+            Center(
+              child: Container(
+                width: 2.2,
+                height: 2.2,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.52 * opacity),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.white.withValues(alpha: 0.28 * opacity),
+                      blurRadius: 2,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 enum _Side { left, right }
+
+class _TeamBoardCamera {
+  const _TeamBoardCamera({required this.scale, required this.translation});
+
+  final double scale;
+  final Offset translation;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _TeamBoardCamera &&
+          other.scale == scale &&
+          other.translation == translation;
+
+  @override
+  int get hashCode => Object.hash(scale, translation);
+}
+
+class _TeamBoardCameraTween extends Tween<_TeamBoardCamera> {
+  _TeamBoardCameraTween({
+    required _TeamBoardCamera begin,
+    required _TeamBoardCamera end,
+  }) : super(begin: begin, end: end);
+
+  @override
+  _TeamBoardCamera lerp(double t) {
+    final start = begin!;
+    final finish = end!;
+    return _TeamBoardCamera(
+      scale: start.scale + (finish.scale - start.scale) * t,
+      translation: Offset.lerp(start.translation, finish.translation, t)!,
+    );
+  }
+}
 
 /// Keeps the complete painted red/blue preview easy to tap even when the
 /// domino is visually scaled beyond its original layout size.

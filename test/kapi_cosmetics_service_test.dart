@@ -49,6 +49,32 @@ void main() {
     expect(store.revision, 18);
   });
 
+  test('equipping an avatar preserves the full player name', () async {
+    SharedPreferences.setMockInitialValues({});
+    const profile = DominoPlayerProfile(
+      initials: 'JP',
+      displayName: 'Juan Polanco',
+      countryCode: 'DR',
+      code: 'ABC123',
+      avatarKey: 'person',
+    );
+    await profile.saveLocally();
+
+    final store = KapiCosmeticsService();
+    await store.load();
+    for (var hand = 0; hand < 25; hand++) {
+      await store.claimVictory(rewardKey: 'avatar-name-$hand');
+    }
+    final avatar = KapiCosmeticsService.byId('avatar_woman');
+    expect(await store.purchase(avatar), isTrue);
+    expect(await store.equip(avatar), isTrue);
+
+    final updated = await DominoPlayerProfile.load();
+    expect(updated.effectiveDisplayName, 'Juan Polanco');
+    expect(updated.initials, 'JP');
+    expect(updated.avatarKey, 'woman');
+  });
+
   test('every paid item respects the balanced starter price floor', () {
     final firstAffordableBalance = KapiCosmeticsService.welcomeCoins;
     final paidItems = KapiCosmeticsService.catalog.where(

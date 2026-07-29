@@ -15,6 +15,7 @@ import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
 import 'services/analytics_service.dart';
 import 'services/audio_manager.dart';
+import 'services/domino_match_mode.dart';
 import 'services/kapi_cosmetics_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
@@ -22,6 +23,7 @@ import 'screens/settings_screen.dart';
 import 'screens/settings_hub_screen.dart';
 import 'screens/game_audio_settings_screen.dart';
 import 'screens/premium_screen.dart';
+import 'screens/mac_pro_hub_screen.dart';
 import 'screens/about_screen.dart';
 import 'screens/terms_privacy_screen.dart';
 import 'screens/game_screen.dart';
@@ -45,7 +47,6 @@ import 'game_settings_notifier.dart';
 import 'font_size_notifier.dart';
 import 'legal_acceptance_notifier.dart';
 import 'premium_notifier.dart';
-import 'widgets/force_update_gate.dart';
 import 'widgets/screen_identifier.dart';
 import 'widgets/game_invitation_inbox.dart';
 
@@ -103,6 +104,10 @@ void main() async {
   await fontSizeNotifier.loadFontSize();
   await teamNameNotifier.loadTeamNames();
   await premiumNotifier.loadPremium();
+  await cosmeticsService.setMacProAccess(premiumNotifier.isMacPro);
+  premiumNotifier.addListener(() {
+    unawaited(cosmeticsService.setMacProAccess(premiumNotifier.isMacPro));
+  });
   await legalAcceptanceNotifier.loadAcceptance();
 
   runApp(
@@ -186,6 +191,8 @@ class _DominoAppState extends State<DominoApp> with WidgetsBindingObserver {
           return const GameAudioSettingsScreen();
         case '/premium':
           return const PremiumScreen();
+        case '/mac-pro':
+          return const MacProHubScreen();
         case '/about':
           return const AboutScreen();
         case '/terms-privacy':
@@ -355,13 +362,15 @@ class _DominoAppState extends State<DominoApp> with WidgetsBindingObserver {
               : null,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        return GameInvitationInbox(
+        final appContent = GameInvitationInbox(
           navigatorKey: appNavigatorKey,
           child: ScreenIdentifier(
             routeListenable: screenIdentifierObserver.currentRoute,
-            child: ForceUpdateGate(child: child),
+            child: child,
           ),
         );
+
+        return appContent;
       },
       routes: {
         '/': (context) => const SplashScreen(),
@@ -371,6 +380,7 @@ class _DominoAppState extends State<DominoApp> with WidgetsBindingObserver {
         '/note-settings': (context) => const SettingsScreen(),
         '/game-settings': (context) => const GameAudioSettingsScreen(),
         '/premium': (context) => const PremiumScreen(),
+        '/mac-pro': (context) => const MacProHubScreen(),
         '/about': (context) => const AboutScreen(),
         '/terms-privacy': (context) => const TermsPrivacyScreen(),
         '/game': (context) => const GameScreen(),
@@ -380,7 +390,13 @@ class _DominoAppState extends State<DominoApp> with WidgetsBindingObserver {
         '/player-account': (context) => const PlayerAccountScreen(),
         '/kapi-store': (context) => const KapiStoreScreen(),
         '/lobby': (context) => const LobbyScreen(),
-        '/simple-lobby': (context) => const SimpleLobbyScreen(),
+        '/simple-lobby': (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          final mode = DominoMatchMode.fromValue(
+            args is Map ? args['mode'] : null,
+          );
+          return SimpleLobbyScreen(mode: mode);
+        },
         '/domino-block': (context) => const ClassicDominoGameScreen(),
         '/domino-classic': (context) => const ClassicDominoGameScreen(),
         '/domino-draw': (context) => const DrawDominoGameScreen(),

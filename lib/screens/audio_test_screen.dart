@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../constants/audio_assets.dart';
@@ -27,11 +28,16 @@ class AudioTestScreen extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               children: [
                 _AudioControls(audio: audio),
-                const SizedBox(height: 18),
-                Text('Music', style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 8),
-                for (final entry in AudioAssets.music.entries)
-                  _MusicRow(name: entry.key, path: entry.value, audio: audio),
+                if (!kReleaseMode) ...[
+                  const SizedBox(height: 18),
+                  Text(
+                    'Music',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  for (final entry in AudioAssets.music.entries)
+                    _MusicRow(name: entry.key, path: entry.value, audio: audio),
+                ],
                 const SizedBox(height: 18),
                 Text(
                   'Sound Effects',
@@ -65,18 +71,20 @@ class _AudioControls extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         child: Column(
           children: [
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Music'),
-              subtitle: Text('${(audio.musicVolume * 100).round()}%'),
-              value: audio.musicEnabled,
-              onChanged: audio.setMusicEnabled,
-            ),
-            Slider(
-              value: audio.musicVolume,
-              label: '${(audio.musicVolume * 100).round()}%',
-              onChanged: audio.musicEnabled ? audio.setMusicVolume : null,
-            ),
+            if (!kReleaseMode) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Music'),
+                subtitle: Text('${(audio.musicVolume * 100).round()}%'),
+                value: audio.musicEnabled,
+                onChanged: audio.setMusicEnabled,
+              ),
+              Slider(
+                value: audio.musicVolume,
+                label: '${(audio.musicVolume * 100).round()}%',
+                onChanged: audio.musicEnabled ? audio.setMusicVolume : null,
+              ),
+            ],
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Sound Effects'),

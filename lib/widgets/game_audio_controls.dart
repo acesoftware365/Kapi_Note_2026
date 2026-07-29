@@ -44,7 +44,13 @@ class GameAudioControls extends StatelessWidget {
                           : Icons.volume_off_rounded,
                   label: spanish ? 'Efectos' : 'SFX',
                   enabled: audio.sfxEnabled,
-                  onPressed: () => audio.setSfxEnabled(!audio.sfxEnabled),
+                  onPressed: () async {
+                    final enable = !audio.sfxEnabled;
+                    await audio.setSfxEnabled(enable);
+                    if (enable) {
+                      await audio.playSfx(AudioAssets.buttonTap);
+                    }
+                  },
                 ),
               ),
             ],
@@ -84,7 +90,12 @@ class GameAudioControls extends StatelessWidget {
               title: Text(spanish ? 'Efectos del juego' : 'Game effects'),
               subtitle: Text('${(audio.sfxVolume * 100).round()}%'),
               value: audio.sfxEnabled,
-              onChanged: audio.setSfxEnabled,
+              onChanged: (enabled) async {
+                await audio.setSfxEnabled(enabled);
+                if (enabled) {
+                  await audio.playSfx(AudioAssets.buttonTap);
+                }
+              },
             ),
             Slider(
               value: audio.sfxVolume,

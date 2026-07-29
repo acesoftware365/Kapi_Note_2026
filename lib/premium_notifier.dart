@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'services/player_account_service.dart';
+
 typedef CoinPurchaseClaimer = Future<bool> Function(String claimId, int amount);
 
 @immutable
@@ -98,6 +100,41 @@ class PremiumNotifier extends ChangeNotifier {
 
   static const String _premiumKey = 'kapi_premium_enabled';
   static const String _premiumProductKey = 'kapi_premium_product_id';
+  static const String _premiumExpiresAtKey = 'kapi_mac_premium_expires_at';
+  static const int macMonthlyCoins = 150;
+
+  static DateTime macExpirationFor(String productId, DateTime purchasedAt) {
+    final utc = purchasedAt.toUtc();
+    final targetYear =
+        productId == yearlyProductId
+            ? utc.year + 1
+            : utc.month == 12
+            ? utc.year + 1
+            : utc.year;
+    final targetMonth =
+        productId == yearlyProductId
+            ? utc.month
+            : utc.month == 12
+            ? 1
+            : utc.month + 1;
+    final lastDay = DateTime.utc(targetYear, targetMonth + 1, 0).day;
+    final targetDay = utc.day.clamp(1, lastDay);
+    return DateTime.utc(
+      targetYear,
+      targetMonth,
+      targetDay,
+      utc.hour,
+      utc.minute,
+      utc.second,
+      utc.millisecond,
+      utc.microsecond,
+    );
+  }
+
+  static String macMonthlyClaimId(DateTime date) {
+    final utc = date.toUtc();
+    return 'mac-pro-month:${utc.year}-${utc.month.toString().padLeft(2, '0')}';
+  }
 
   final InAppPurchase _inAppPurchase = InAppPurchase.instance;
   final CoinPurchaseClaimer? _coinPurchaseClaimer;
@@ -109,6 +146,7 @@ class PremiumNotifier extends ChangeNotifier {
   bool _isLoading = false;
   bool _isReady = false;
   String? _activeProductId;
+  DateTime? _expiresAt;
   String? _errorMessage;
   List<ProductDetails> _products = [];
 
@@ -121,6 +159,8 @@ class PremiumNotifier extends ChangeNotifier {
       _isStoreSupported && _isAvailable && _coinPurchaseClaimer != null;
   bool get isStoreSupported => _isStoreSupported;
   String? get activeProductId => _activeProductId;
+  DateTime? get expiresAt => _expiresAt;
+  bool get isMacPro => Platform.isMacOS && _isPremium;
   String? get errorMessage => _errorMessage;
   List<ProductDetails> get products => List.unmodifiable(_products);
   List<ProductDetails> get coinProducts => List.unmodifiable(
@@ -145,6 +185,22 @@ class PremiumNotifier extends ChangeNotifier {
         _screenshotProMode
             ? currentYearlyProductId
             : prefs.getString(_premiumProductKey);
+    if (Platform.isMacOS && !_screenshotProMode) {
+      final expiresAtMillis = prefs.getInt(_premiumExpiresAtKey);
+      _expiresAt =
+          expiresAtMillis == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(
+                expiresAtMillis,
+                isUtc: true,
+              );
+      if (_expiresAt == null || !_expiresAt!.isAfter(DateTime.now().toUtc())) {
+        await _disableExpiredMacPremium(prefs);
+      } else if (_isPremium) {
+        await _grantMacMonthlyCoins();
+        unawaited(PlayerAccountService.instance.syncMacProStatus(true));
+      }
+    }
 
     if (!_isStoreSupported) {
       _isReady = true;
@@ -304,12 +360,18 @@ class PremiumNotifier extends ChangeNotifier {
             if (_coinProductIds.contains(purchaseDetails.productID)) {
               await _creditCoinPurchase(purchaseDetails);
             } else {
-              await _enablePremium(purchaseDetails.productID);
+              await _enablePremium(
+                purchaseDetails.productID,
+                purchase: purchaseDetails,
+              );
             }
             break;
           case PurchaseStatus.restored:
             if (_premiumProductIds.contains(purchaseDetails.productID)) {
-              await _enablePremium(purchaseDetails.productID);
+              await _enablePremium(
+                purchaseDetails.productID,
+                purchase: purchaseDetails,
+              );
             } else {
               _isLoading = false;
               notifyListeners();
@@ -372,8 +434,19 @@ class PremiumNotifier extends ChangeNotifier {
     throw StateError('The store did not return a stable transaction ID.');
   }
 
-  Future<void> _enablePremium(String productId) async {
+  Future<void> _enablePremium(
+    String productId, {
+    PurchaseDetails? purchase,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
+    if (Platform.isMacOS) {
+      final purchasedAt = _purchaseDate(purchase) ?? DateTime.now().toUtc();
+      _expiresAt = macExpirationFor(productId, purchasedAt);
+      await prefs.setInt(
+        _premiumExpiresAtKey,
+        _expiresAt!.millisecondsSinceEpoch,
+      );
+    }
     await prefs.setBool(_premiumKey, true);
     await prefs.setString(_premiumProductKey, productId);
 
@@ -381,13 +454,44 @@ class PremiumNotifier extends ChangeNotifier {
     _activeProductId = productId;
     _isLoading = false;
     _errorMessage = null;
+    if (Platform.isMacOS) {
+      await _grantMacMonthlyCoins();
+      unawaited(PlayerAccountService.instance.syncMacProStatus(true));
+    }
     notifyListeners();
   }
 
-  bool get _isStoreSupported => Platform.isAndroid || Platform.isIOS;
+  DateTime? _purchaseDate(PurchaseDetails? purchase) {
+    final raw = int.tryParse(purchase?.transactionDate ?? '');
+    if (raw == null || raw <= 0) return null;
+    return DateTime.fromMillisecondsSinceEpoch(raw, isUtc: true);
+  }
+
+  Future<void> _grantMacMonthlyCoins() async {
+    if (!Platform.isMacOS || !_isPremium) return;
+    final claimer = _coinPurchaseClaimer;
+    if (claimer == null) return;
+    final now = DateTime.now().toUtc();
+    await claimer(macMonthlyClaimId(now), macMonthlyCoins);
+  }
+
+  Future<void> _disableExpiredMacPremium(SharedPreferences prefs) async {
+    _isPremium = false;
+    _activeProductId = null;
+    _expiresAt = null;
+    await prefs.setBool(_premiumKey, false);
+    await prefs.remove(_premiumProductKey);
+    await prefs.remove(_premiumExpiresAtKey);
+    unawaited(PlayerAccountService.instance.syncMacProStatus(false));
+  }
+
+  bool get _isStoreSupported =>
+      Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
 
   Set<String> get _productIdsForCurrentPlatform =>
-      Platform.isIOS ? _iosProductIds : _androidProductIds;
+      (Platform.isIOS || Platform.isMacOS)
+          ? _iosProductIds
+          : _androidProductIds;
 
   Set<String> get _knownProductIds => {
     ..._androidProductIds,

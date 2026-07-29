@@ -7,10 +7,12 @@ class DominoResultCelebration extends StatefulWidget {
     super.key,
     required this.child,
     this.showConfetti = false,
+    this.maxContentWidth = 430,
   });
 
   final Widget child;
   final bool showConfetti;
+  final double maxContentWidth;
 
   @override
   State<DominoResultCelebration> createState() =>
@@ -51,7 +53,7 @@ class _DominoResultCelebrationState extends State<DominoResultCelebration>
             child: Center(
               child: SingleChildScrollView(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 430),
+                  constraints: BoxConstraints(maxWidth: widget.maxContentWidth),
                   child: widget.child,
                 ),
               ),

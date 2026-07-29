@@ -158,6 +158,7 @@ class BlockRoomService {
         'opponentId': FieldValue.delete(),
         'pairingId': FieldValue.delete(),
         'searchToken': FieldValue.delete(),
+        'mode': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),

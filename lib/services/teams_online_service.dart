@@ -12,16 +12,19 @@ class TeamsOnlinePlayer {
   const TeamsOnlinePlayer({
     required this.id,
     required this.initials,
+    String? displayName,
     required this.countryCode,
     required this.avatarKey,
     required this.points,
     required this.isCpu,
     this.badgeKey = 'flag_none',
     this.replacedPlayer = false,
-  });
+    this.isFallbackOnlinePlayer = false,
+  }) : displayName = displayName ?? initials;
 
   final String id;
   final String initials;
+  final String displayName;
   final String countryCode;
   final String avatarKey;
   final int points;
@@ -29,38 +32,58 @@ class TeamsOnlinePlayer {
   final String badgeKey;
   final bool replacedPlayer;
 
-  factory TeamsOnlinePlayer.fromMap(Map<String, dynamic> map) =>
-      TeamsOnlinePlayer(
-        id: (map['id'] as String? ?? '').toUpperCase(),
-        initials: (map['initials'] as String? ?? 'CPU').toUpperCase(),
-        countryCode: (map['countryCode'] as String? ?? 'US').toUpperCase(),
-        avatarKey: map['avatarKey'] as String? ?? 'person',
-        points: (map['points'] as num?)?.toInt() ?? 0,
-        isCpu: map['isCpu'] as bool? ?? false,
-        badgeKey: map['badgeKey'] as String? ?? 'flag_none',
-        replacedPlayer: map['replacedPlayer'] as bool? ?? false,
-      );
+  /// A CPU-controlled seat displayed as an online-style player when quick
+  /// matchmaking needs to complete a table.
+  final bool isFallbackOnlinePlayer;
+
+  factory TeamsOnlinePlayer.fromMap(Map<String, dynamic> map) {
+    final initials = (map['initials'] as String? ?? 'CPU').toUpperCase();
+    final savedDisplayName = DominoPlayerProfile.normalizeDisplayName(
+      map['displayName'] as String? ?? '',
+    );
+    return TeamsOnlinePlayer(
+      id: (map['id'] as String? ?? '').toUpperCase(),
+      initials: initials,
+      displayName:
+          DominoPlayerProfile.isValidDisplayName(savedDisplayName)
+              ? savedDisplayName
+              : initials,
+      countryCode: TeamsOnlineService._normalizeCountryCode(
+        map['countryCode'] as String? ?? 'US',
+      ),
+      avatarKey: map['avatarKey'] as String? ?? 'person',
+      points: (map['points'] as num?)?.toInt() ?? 0,
+      isCpu: map['isCpu'] as bool? ?? false,
+      badgeKey: map['badgeKey'] as String? ?? 'flag_none',
+      replacedPlayer: map['replacedPlayer'] as bool? ?? false,
+      isFallbackOnlinePlayer: map['isFallbackOnlinePlayer'] as bool? ?? false,
+    );
+  }
 
   Map<String, dynamic> toMap() => {
     'id': id,
     'initials': initials,
+    'displayName': displayName,
     'countryCode': countryCode,
     'avatarKey': avatarKey,
     'points': points,
     'isCpu': isCpu,
     'badgeKey': badgeKey,
     'replacedPlayer': replacedPlayer,
+    'isFallbackOnlinePlayer': isFallbackOnlinePlayer,
   };
 
   TeamsOnlinePlayer asCpu(int seat, String gameId) => TeamsOnlinePlayer(
     id: 'CPU-$gameId-$seat',
     initials: initials,
+    displayName: displayName,
     countryCode: countryCode,
     avatarKey: avatarKey,
     points: points,
     isCpu: true,
     badgeKey: badgeKey,
     replacedPlayer: true,
+    isFallbackOnlinePlayer: false,
   );
 }
 
@@ -81,6 +104,54 @@ class TeamsOnlineRoster {
     final normalized = normalizeId(value);
     final parts = normalized.split('.');
     return parts.length == 3 && parts.last.isNotEmpty ? parts.last : normalized;
+  }
+
+  static bool isConfirmed({
+    required List<TeamsOnlinePlayer> players,
+    required String currentPlayerId,
+  }) {
+    if (players.length != 4) return false;
+    final playerIds = players.map((player) => identityKey(player.id)).toList();
+    if (playerIds.any((id) => id.isEmpty) || playerIds.toSet().length != 4) {
+      return false;
+    }
+    return playerIds.contains(identityKey(currentPlayerId));
+  }
+
+  /// Builds the local presentation sequence used after matchmaking commits.
+  /// Firestore still writes the complete roster atomically; only the lobby UI
+  /// reveals newly-filled seats one at a time.
+  static List<List<TeamsOnlinePlayer>> revealSteps({
+    required List<TeamsOnlinePlayer> currentPlayers,
+    required List<TeamsOnlinePlayer> finalPlayers,
+  }) {
+    final finalIds =
+        finalPlayers.map((player) => identityKey(player.id)).toList();
+    if (finalPlayers.length != 4 ||
+        finalIds.any((id) => id.isEmpty) ||
+        finalIds.toSet().length != 4) {
+      return const [];
+    }
+    final finalIdSet = finalIds.toSet();
+    final visibleIds =
+        currentPlayers
+            .map((player) => identityKey(player.id))
+            .where(finalIdSet.contains)
+            .toSet();
+    List<TeamsOnlinePlayer> visiblePlayers() =>
+        List<TeamsOnlinePlayer>.unmodifiable(
+          finalPlayers.where(
+            (player) => visibleIds.contains(identityKey(player.id)),
+          ),
+        );
+
+    final steps = <List<TeamsOnlinePlayer>>[visiblePlayers()];
+    for (final player in finalPlayers) {
+      if (visibleIds.add(identityKey(player.id))) {
+        steps.add(visiblePlayers());
+      }
+    }
+    return List<List<TeamsOnlinePlayer>>.unmodifiable(steps);
   }
 
   static List<TeamsOnlinePlayer?> relativeSeats({
@@ -324,7 +395,22 @@ class TeamsOnlineService {
   static const gamesCollection = 'kapi_teams_online_games';
   static const queueCollection = 'kapi_teams_matchmaking';
   static const _bucketId = '_quickplay';
-  static const searchDuration = Duration(seconds: 30);
+
+  /// A quick online match never leaves a new player waiting for long. If no
+  /// people join in this window, the remaining seats are filled by our
+  /// personality-driven online players.
+  static const quickSearchDuration = Duration(seconds: 8);
+  static const inviteSearchDuration = Duration(seconds: 30);
+  static const _fallbackProfiles = [
+    (name: 'Juan', initials: 'JU', country: 'DO', avatar: 'caribbean_man'),
+    (name: 'Sofía', initials: 'SO', country: 'PR', avatar: 'boricua_woman'),
+    (name: 'Diego', initials: 'DI', country: 'MX', avatar: 'mexico_man'),
+    (name: 'Arjun', initials: 'AR', country: 'IN', avatar: 'india_man'),
+    (name: 'Valeria', initials: 'VA', country: 'ES', avatar: 'spanish_woman'),
+    (name: 'Aiko', initials: 'AI', country: 'JP', avatar: 'asian_woman'),
+    (name: 'Alex', initials: 'AL', country: 'US', avatar: 'person'),
+    (name: 'Mohamed', initials: 'MO', country: 'EG', avatar: 'person'),
+  ];
   static const Map<String, String> quickChatEmojis = {
     'wellPlayed': '👏',
     'thanks': '🙏',
@@ -345,6 +431,48 @@ class TeamsOnlineService {
   CollectionReference<Map<String, dynamic>> get _queue =>
       db.collection(queueCollection);
 
+  static String _normalizeCountryCode(String value) {
+    return value.trim().toUpperCase();
+  }
+
+  static int _stableFallbackBase(String gameId) {
+    var hash = 0;
+    for (final codeUnit in gameId.codeUnits) {
+      hash = ((hash * 31) + codeUnit) & 0x7FFFFFFF;
+    }
+    return hash % _fallbackProfiles.length;
+  }
+
+  static TeamsOnlinePlayer _fallbackOnlinePlayer({
+    required String gameId,
+    required int seat,
+  }) {
+    final index =
+        (_stableFallbackBase(gameId) + seat) % _fallbackProfiles.length;
+    final profile = _fallbackProfiles[index];
+    return TeamsOnlinePlayer(
+      id: 'ONLINE-$gameId-$seat',
+      initials: profile.initials,
+      displayName: profile.name,
+      countryCode: profile.country,
+      avatarKey: profile.avatar,
+      points: 0,
+      isCpu: true,
+      badgeKey: 'flag_${profile.country.toLowerCase()}',
+      isFallbackOnlinePlayer: true,
+    );
+  }
+
+  @visibleForTesting
+  static List<TeamsOnlinePlayer> fallbackPlayersForTesting(
+    String gameId, {
+    int count = 4,
+  }) => List<TeamsOnlinePlayer>.generate(
+    count,
+    (seat) => _fallbackOnlinePlayer(gameId: gameId, seat: seat),
+    growable: false,
+  );
+
   Stream<TeamsOnlineLobby> watchLobby(String gameId) =>
       _games.doc(gameId).snapshots().map(TeamsOnlineLobby.fromSnapshot);
 
@@ -362,7 +490,8 @@ class TeamsOnlineService {
     final player = TeamsOnlinePlayer(
       id: playerId,
       initials: profile.initials,
-      countryCode: profile.countryCode,
+      displayName: profile.effectiveDisplayName,
+      countryCode: _normalizeCountryCode(profile.countryCode),
       avatarKey: profile.avatarKey,
       points: points,
       isCpu: false,
@@ -378,7 +507,7 @@ class TeamsOnlineService {
         'players': [player.toMap()],
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtMillis': now,
-        'deadlineAt': now + searchDuration.inMilliseconds,
+        'deadlineAt': now + inviteSearchDuration.inMilliseconds,
         'updatedAt': FieldValue.serverTimestamp(),
       });
       transaction.set(_queue.doc(playerId), {
@@ -402,7 +531,8 @@ class TeamsOnlineService {
     final player = TeamsOnlinePlayer(
       id: playerId,
       initials: profile.initials,
-      countryCode: profile.countryCode,
+      displayName: profile.effectiveDisplayName,
+      countryCode: _normalizeCountryCode(profile.countryCode),
       avatarKey: profile.avatarKey,
       points: points,
       isCpu: false,
@@ -466,7 +596,8 @@ class TeamsOnlineService {
     final player = TeamsOnlinePlayer(
       id: playerId,
       initials: profile.initials,
-      countryCode: profile.countryCode,
+      displayName: profile.effectiveDisplayName,
+      countryCode: _normalizeCountryCode(profile.countryCode),
       avatarKey: profile.avatarKey,
       points: points,
       isCpu: false,
@@ -520,7 +651,7 @@ class TeamsOnlineService {
           'players': [player.toMap()],
           'createdAt': FieldValue.serverTimestamp(),
           'createdAtMillis': now,
-          'deadlineAt': now + searchDuration.inMilliseconds,
+          'deadlineAt': now + quickSearchDuration.inMilliseconds,
           'updatedAt': FieldValue.serverTimestamp(),
         });
         transaction.set(bucketRef, {
@@ -584,29 +715,16 @@ class TeamsOnlineService {
             }
           }
           for (var seat = 0; seat < assigned.length; seat++) {
-            assigned[seat] ??= TeamsOnlinePlayer(
-              id: 'CPU-$gameId-$seat',
-              initials: seat == 2 ? 'Partner CPU' : 'CPU ${seat + 1}',
-              countryCode: 'US',
-              avatarKey: 'robot',
-              points: 0,
-              isCpu: true,
+            assigned[seat] ??= _fallbackOnlinePlayer(
+              gameId: gameId,
+              seat: seat,
             );
           }
           players = assigned.cast<TeamsOnlinePlayer>();
         }
         while (players.length < 4) {
           final seat = players.length;
-          players.add(
-            TeamsOnlinePlayer(
-              id: 'CPU-$gameId-$seat',
-              initials: seat == 2 ? 'Partner CPU' : 'CPU ${seat + 1}',
-              countryCode: 'US',
-              avatarKey: 'robot',
-              points: 0,
-              isCpu: true,
-            ),
-          );
+          players.add(_fallbackOnlinePlayer(gameId: gameId, seat: seat));
         }
         final initial = _newRound(
           gameId: gameId,
@@ -740,6 +858,54 @@ class TeamsOnlineService {
               playerKey,
         );
         if (seat < 0 || players[seat]['isCpu'] == true) return false;
+        final previous = Map<String, dynamic>.from(
+          data['quickChat'] as Map? ?? const <String, dynamic>{},
+        );
+        final sequence = (previous['sequence'] as num?)?.toInt() ?? 0;
+        transaction.update(ref, {
+          'quickChat': {
+            'sequence': sequence + 1,
+            'player': seat,
+            'messageId': messageId,
+            'emoji': emoji,
+            'sentAtMillis': DateTime.now().millisecondsSinceEpoch,
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return true;
+      });
+    } on FirebaseException {
+      return false;
+    }
+  }
+
+  /// Lets the fallback online players react through the same chat channel as
+  /// human players, so every client sees one synchronized message.
+  Future<bool> sendCpuQuickChat({
+    required String gameId,
+    required int seat,
+    required String messageId,
+  }) async {
+    final emoji = quickChatEmojis[messageId];
+    if (emoji == null) return false;
+    final ref = _games.doc(gameId);
+    try {
+      return await db.runTransaction<bool>((transaction) async {
+        final snapshot = await transaction.get(ref);
+        final data = snapshot.data();
+        if (data == null) return false;
+        final status = data['status'] as String? ?? '';
+        if (status == 'waiting' || status == 'cancelled') return false;
+        final players =
+            (data['players'] as List<dynamic>? ?? const [])
+                .whereType<Map>()
+                .map((entry) => Map<String, dynamic>.from(entry))
+                .toList();
+        if (seat < 0 ||
+            seat >= players.length ||
+            players[seat]['isCpu'] != true) {
+          return false;
+        }
         final previous = Map<String, dynamic>.from(
           data['quickChat'] as Map? ?? const <String, dynamic>{},
         );
@@ -1014,7 +1180,16 @@ class TeamsOnlineService {
     state.revision++;
     state.lastAction = {'type': 'pass', 'player': player};
     state.turn = (state.turn + 1) % 4;
-    if (state.consecutivePasses >= 4) _finishBlocked(state);
+    final returnedToBlocker =
+        state.consecutivePasses >= 3 && state.turn == state.lastPlayerToPlay;
+    final blockerCannotPlay =
+        returnedToBlocker &&
+        !state.hands[state.turn]!.any(
+          (tile) => _validSides(state.board, tile).isNotEmpty,
+        );
+    if (blockerCannotPlay || state.consecutivePasses >= 4) {
+      _finishBlocked(state);
+    }
   }
 
   static bool _applyPlay(

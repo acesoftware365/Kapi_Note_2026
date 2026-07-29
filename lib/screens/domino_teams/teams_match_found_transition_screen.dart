@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../constants/audio_assets.dart';
 import '../../services/audio_manager.dart';
+import '../../services/kapi_cosmetics_service.dart';
 import '../../services/teams_online_service.dart';
 import '../domino_player_profile.dart';
 import 'domino_teams_cpu_screen.dart';
@@ -255,44 +256,166 @@ class _PlayerCard extends StatelessWidget {
 
   final TeamsOnlinePlayer? player;
 
+  String? _flagEmoji(TeamsOnlinePlayer player) {
+    if (player.isCpu &&
+        !player.replacedPlayer &&
+        !player.isFallbackOnlinePlayer) {
+      return null;
+    }
+    final cosmetic = KapiCosmeticsService.byId(player.badgeKey);
+    if (cosmetic.type == KapiCosmeticType.flag && cosmetic.id != 'flag_none') {
+      return cosmetic.emoji;
+    }
+    final rawCountry = player.countryCode.trim().toUpperCase();
+    final country = rawCountry == 'DR' ? 'DO' : rawCountry;
+    if (!RegExp(r'^[A-Z]{2}$').hasMatch(country)) return null;
+    return String.fromCharCodes(
+      country.codeUnits.map((character) => character + 127397),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final value = player;
     if (value == null) return const SizedBox(height: 82);
-    final tier = DominoTierVisual.fromScore(value.points, ranked: !value.isCpu);
-    return Column(
-      children: [
-        Container(
-          width: 52,
-          height: 52,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: tier.deep,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: tier.frameColor(active: true), width: 2),
+    final visibleAsCpu = value.isCpu && !value.isFallbackOnlinePlayer;
+    final tier = DominoTierVisual.fromScore(
+      value.points,
+      ranked: !visibleAsCpu,
+    );
+    final flag = _flagEmoji(value);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 145;
+        final wide = constraints.maxWidth >= 260;
+        final cardHeight = wide ? 96.0 : 82.0;
+        final horizontalPadding = wide ? 14.0 : (compact ? 7.0 : 9.0);
+        final avatarSize = wide ? 60.0 : (compact ? 42.0 : 50.0);
+        final flagWidth = wide ? 78.0 : (compact ? 30.0 : 48.0);
+        final flagHeight = wide ? 62.0 : (compact ? 34.0 : 54.0);
+        final avatarGap = wide ? 12.0 : (compact ? 5.0 : 7.0);
+        final flagGap = wide ? 10.0 : (compact ? 2.0 : 4.0);
+        return SizedBox(
+          key: ValueKey('teams-ready-player-card-${value.id}'),
+          height: cardHeight,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0x99101820),
+                      border: Border.all(color: Colors.white12),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          key: ValueKey(
+                            'teams-ready-player-avatar-${value.id}',
+                          ),
+                          width: avatarSize,
+                          height: avatarSize,
+                          clipBehavior: Clip.antiAlias,
+                          decoration: BoxDecoration(
+                            color: tier.deep,
+                            borderRadius: BorderRadius.circular(wide ? 18 : 15),
+                            border: Border.all(
+                              color: tier.frameColor(active: true),
+                              width: 2,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x99000000),
+                                blurRadius: 8,
+                                offset: Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: DominoAvatarVisual(
+                            avatarKey: value.avatarKey,
+                            fallbackIcon:
+                                visibleAsCpu
+                                    ? Icons.smart_toy_rounded
+                                    : Icons.person,
+                            backgroundColor: tier.deep,
+                          ),
+                        ),
+                        SizedBox(width: avatarGap),
+                        Expanded(
+                          child: KeyedSubtree(
+                            key: ValueKey(
+                              'teams-ready-player-text-${value.id}',
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  value.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: compact ? 13 : (wide ? 16 : 14),
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                Text(
+                                  visibleAsCpu
+                                      ? 'CPU'
+                                      : '${value.countryCode} · ${tier.label}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: compact ? 9 : (wide ? 11 : 10),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (flag != null) ...[
+                          SizedBox(width: flagGap),
+                          SizedBox(
+                            key: ValueKey(
+                              'teams-ready-player-flag-${value.id}',
+                            ),
+                            width: flagWidth,
+                            height: flagHeight,
+                            child: Opacity(
+                              opacity: .78,
+                              child: FittedBox(
+                                fit: BoxFit.contain,
+                                child: Text(
+                                  flag,
+                                  style: const TextStyle(
+                                    fontSize: 84,
+                                    height: 1,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: DominoAvatarVisual(
-            avatarKey: value.avatarKey,
-            fallbackIcon: value.isCpu ? Icons.smart_toy_rounded : Icons.person,
-            backgroundColor: tier.deep,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          value.initials,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        Text(
-          value.isCpu ? 'CPU' : '${value.countryCode} · ${tier.label}',
-          maxLines: 1,
-          style: const TextStyle(color: Colors.white60, fontSize: 10),
-        ),
-      ],
+        );
+      },
     );
   }
 }

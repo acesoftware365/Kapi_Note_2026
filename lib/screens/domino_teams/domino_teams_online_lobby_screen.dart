@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../constants/audio_assets.dart';
 import '../../services/audio_manager.dart';
+import '../../services/online_version_service.dart';
 import '../../services/teams_online_service.dart';
 import '../../widgets/anchored_adaptive_banner_ad.dart';
 import '../admob_variable.dart';
@@ -42,13 +43,17 @@ class _DominoTeamsOnlineLobbyScreenState
   bool _joining = false;
   bool _cancelJoinRequested = false;
   bool _finalizing = false;
+  bool _presentingReadyRoster = false;
   bool _openingGame = false;
   bool _allowPop = false;
   int _lastPlayerCount = 0;
+  List<TeamsOnlinePlayer> _visiblePlayers = const [];
 
   bool get _isSpanish =>
       Localizations.localeOf(context).languageCode.toLowerCase() == 'es';
   bool get _isSearching => _gameId != null;
+  bool get _matchLocked =>
+      _finalizing || _presentingReadyRoster || _openingGame;
   String get _adUnitId =>
       defaultTargetPlatform == TargetPlatform.android
           ? AdmobVariable.bannerAndroidUnit
@@ -100,6 +105,7 @@ class _DominoTeamsOnlineLobbyScreenState
   }
 
   Future<void> _join() async {
+    if (!await _ensureOnlineVersion()) return;
     final profile = _profile;
     if (_joining || _isSearching || profile == null) return;
     setState(() {
@@ -157,6 +163,8 @@ class _DominoTeamsOnlineLobbyScreenState
   }
 
   Future<void> _inviteFriends() async {
+    if (!await _ensureOnlineVersion()) return;
+    if (!mounted) return;
     final profile = _profile;
     if (profile == null || _joining) return;
     final selection = await Navigator.push<SimpleFriendsSelection>(
@@ -232,6 +240,14 @@ class _DominoTeamsOnlineLobbyScreenState
     }
   }
 
+  Future<bool> _ensureOnlineVersion() async {
+    final status = await OnlineVersionService.instance.check(refresh: true);
+    if (!mounted) return false;
+    if (!status.requiresUpdate) return true;
+    await showOnlineVersionDialog(context, status, allowOffline: false);
+    return false;
+  }
+
   void _showMessage(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -241,15 +257,19 @@ class _DominoTeamsOnlineLobbyScreenState
 
   void _onLobby(TeamsOnlineLobby lobby) {
     if (!mounted) return;
+    if (lobby.status == 'playing' || lobby.status == 'matchOver') {
+      setState(() => _lobby = lobby);
+      unawaited(_presentReadyRoster(lobby));
+      return;
+    }
     if (lobby.players.length > _lastPlayerCount && _lastPlayerCount > 0) {
       unawaited(AudioManager.instance.playSfx(AudioAssets.playerJoined));
     }
     _lastPlayerCount = lobby.players.length;
-    setState(() => _lobby = lobby);
-    if (lobby.status == 'playing' || lobby.status == 'matchOver') {
-      unawaited(_openGame());
-      return;
-    }
+    setState(() {
+      _lobby = lobby;
+      _visiblePlayers = List<TeamsOnlinePlayer>.unmodifiable(lobby.players);
+    });
     if (lobby.players.length >= 4 || lobby.secondsRemaining == 0) {
       unawaited(_tryFinalize());
     }
@@ -257,20 +277,73 @@ class _DominoTeamsOnlineLobbyScreenState
 
   Future<void> _tryFinalize() async {
     final gameId = _gameId;
-    if (_finalizing || gameId == null || _openingGame) return;
-    _finalizing = true;
+    if (_matchLocked || gameId == null) return;
+    if (mounted) setState(() => _finalizing = true);
     try {
+      // The matching snapshot is the canonical confirmation. It contains the
+      // four-player roster in the same atomic update as status = playing.
       await _service.finalizeLobby(gameId);
     } finally {
-      _finalizing = false;
+      if (mounted) setState(() => _finalizing = false);
     }
   }
 
-  Future<void> _openGame() async {
+  Future<void> _presentReadyRoster(TeamsOnlineLobby lobby) async {
+    final profile = _profile;
+    if (_openingGame || _presentingReadyRoster || profile == null) return;
+    final finalPlayers = List<TeamsOnlinePlayer>.unmodifiable(lobby.players);
+    if (!TeamsOnlineRoster.isConfirmed(
+      players: finalPlayers,
+      currentPlayerId: profile.publicId,
+    )) {
+      setState(() {
+        _error =
+            _isSpanish
+                ? 'Confirmando los cuatro jugadores...'
+                : 'Confirming all four players...';
+      });
+      return;
+    }
+    final steps = TeamsOnlineRoster.revealSteps(
+      currentPlayers: _visiblePlayers,
+      finalPlayers: finalPlayers,
+    );
+    if (steps.isEmpty) return;
+    _ticker?.cancel();
+    _ticker = null;
+    setState(() {
+      _presentingReadyRoster = true;
+      _error = null;
+      _visiblePlayers = steps.first;
+    });
+
+    for (var index = 1; index < steps.length; index++) {
+      await Future<void>.delayed(const Duration(milliseconds: 420));
+      if (!mounted) return;
+      setState(() => _visiblePlayers = steps[index]);
+      unawaited(AudioManager.instance.playSfx(AudioAssets.playerJoined));
+    }
+    if (steps.length == 1) {
+      setState(() => _visiblePlayers = finalPlayers);
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 520));
+    if (!mounted) return;
+    await _openGame(finalPlayers);
+  }
+
+  Future<void> _openGame(List<TeamsOnlinePlayer> players) async {
     final gameId = _gameId;
     final profile = _profile;
-    if (_openingGame || gameId == null || profile == null) return;
-    _openingGame = true;
+    if (_openingGame ||
+        gameId == null ||
+        profile == null ||
+        !TeamsOnlineRoster.isConfirmed(
+          players: players,
+          currentPlayerId: profile.publicId,
+        )) {
+      return;
+    }
+    setState(() => _openingGame = true);
     _ticker?.cancel();
     await AudioManager.instance.playSfx(AudioAssets.gameStart);
     if (!mounted) return;
@@ -281,7 +354,7 @@ class _DominoTeamsOnlineLobbyScreenState
             (_) => TeamsMatchFoundTransitionScreen(
               gameId: gameId,
               playerId: profile.publicId,
-              players: _lobby?.players ?? const [],
+              players: players,
             ),
       ),
     );
@@ -301,6 +374,13 @@ class _DominoTeamsOnlineLobbyScreenState
           gameId: gameId,
           playerId: profile.publicId,
         );
+        // If another client finalized the table at the same moment, cancellation
+        // no longer applies. Replace this seat so the remaining match cannot
+        // stall while waiting for a player who already left the lobby.
+        await _service.replaceWithCpu(
+          gameId: gameId,
+          playerId: profile.publicId,
+        );
       } on FirebaseException {
         // Leaving the UI must remain possible during a temporary sync issue.
       }
@@ -314,37 +394,40 @@ class _DominoTeamsOnlineLobbyScreenState
     setState(() {
       _gameId = null;
       _lobby = null;
+      _visiblePlayers = const [];
       _error = null;
       _joining = false;
       _finalizing = false;
+      _presentingReadyRoster = false;
       _lastPlayerCount = 0;
     });
   }
 
-  Future<void> _cancel() => _leaveRoom(closeScreen: true);
+  Future<void> _cancel() {
+    if (_matchLocked) return Future<void>.value();
+    return _leaveRoom(closeScreen: true);
+  }
 
   void _openNotes() {
     Navigator.pushNamed(context, '/game', arguments: {'fromDominoGame': true});
   }
 
-  void _playWithCpu() {
-    Navigator.pushReplacementNamed(context, '/domino-teams-cpu');
-  }
-
   @override
   Widget build(BuildContext context) {
     final lobby = _lobby;
-    final players = lobby?.players ?? const <TeamsOnlinePlayer>[];
+    final players = _visiblePlayers;
     final relativeSeats = TeamsOnlineRoster.relativeWaitingSeats(
       players: players,
       currentPlayerId: _profile?.publicId ?? '',
       preferredPartnerId: lobby?.preferredPartnerId ?? '',
     );
-    final seconds = lobby?.secondsRemaining ?? 30;
+    final seconds =
+        lobby?.secondsRemaining ??
+        TeamsOnlineService.quickSearchDuration.inSeconds;
     return PopScope(
       canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) unawaited(_cancel());
+        if (!didPop && !_matchLocked) unawaited(_cancel());
       },
       child: Scaffold(
         backgroundColor: const Color(0xFF061421),
@@ -352,7 +435,7 @@ class _DominoTeamsOnlineLobbyScreenState
           backgroundColor: const Color(0xFF8B0808),
           foregroundColor: Colors.white,
           leading: IconButton(
-            onPressed: _cancel,
+            onPressed: _matchLocked ? null : _cancel,
             icon: const Icon(Icons.arrow_back_rounded),
             tooltip: _isSpanish ? 'Salir' : 'Exit',
           ),
@@ -406,95 +489,80 @@ class _DominoTeamsOnlineLobbyScreenState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF172735), Color(0xFF0B1721)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF182733), Color(0xFF09141D)],
             ),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFFFD36B)),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.groups_2_rounded,
-                color: Color(0xFFFFD36B),
-                size: 42,
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: const Color(0xFFD8BD7A), width: 1.3),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x66000000),
+                blurRadius: 20,
+                offset: Offset(0, 10),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _isSpanish ? 'Elige el modo' : 'Choose a mode',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    Text(
-                      _isSpanish
-                          ? 'Puedes jugar ahora con CPU o buscar jugadores.'
-                          : 'Play with CPU now or search for players.',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
+            ],
+          ),
+          child: Column(
+            children: [
+              _modeCard(
+                icon: _onlineModeIcon(),
+                color: const Color(0xFF246B9C),
+                title:
+                    _isSpanish
+                        ? 'Buscar partida online'
+                        : 'Find an online match',
+                subtitle:
+                    _isSpanish
+                        ? 'Matchmaking global; jugadores online completan tras 8 segundos.'
+                        : 'Global matchmaking; online players fill after 8 seconds.',
+                trailingIcon: Icons.search_rounded,
+                onTap:
+                    _loadingProfile || _joining || _profile == null
+                        ? null
+                        : _join,
+              ),
+              const SizedBox(height: 10),
+              _modeCard(
+                icon: _friendsModeIcon(),
+                color: const Color(0xFF3D4144),
+                title:
+                    _isSpanish
+                        ? 'Partida online con amigos'
+                        : 'Online match with friends',
+                subtitle:
+                    _isSpanish
+                        ? 'Invita a varios amigos y juega juntos online.'
+                        : 'Invite several friends and play together online.',
+                onTap:
+                    _loadingProfile || _joining || _profile == null
+                        ? null
+                        : _inviteFriends,
               ),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        _modeCard(
-          icon: Icons.smart_toy_rounded,
-          color: const Color(0xFF29A36A),
-          title: _isSpanish ? 'Jugar con CPU' : 'Play with CPU',
-          subtitle:
-              _isSpanish
-                  ? 'Comienza inmediatamente con tres jugadores CPU.'
-                  : 'Start immediately with three CPU players.',
-          onTap: _playWithCpu,
-        ),
-        const SizedBox(height: 12),
-        _modeCard(
-          icon: Icons.public_rounded,
-          color: const Color(0xFF1976D2),
-          title: _isSpanish ? 'Buscar partida online' : 'Find an online match',
-          subtitle:
-              _isSpanish
-                  ? 'Busca hasta 30 segundos; el CPU completa los puestos.'
-                  : 'Search for 30 seconds; CPU fills empty seats.',
-          onTap: _loadingProfile || _joining || _profile == null ? null : _join,
-        ),
-        const SizedBox(height: 12),
-        _modeCard(
-          icon: Icons.group_add_rounded,
-          color: const Color(0xFF7B4DCC),
-          title: _isSpanish ? 'Invitar amigos' : 'Invite friends',
-          subtitle:
-              _isSpanish
-                  ? 'Selecciona varios amigos en línea para esta sala.'
-                  : 'Select several online friends for this room.',
-          onTap:
-              _loadingProfile || _joining || _profile == null
-                  ? null
-                  : _inviteFriends,
-        ),
-        const SizedBox(height: 20),
-        OutlinedButton.icon(
-          onPressed: _cancel,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.white70,
-            minimumSize: const Size.fromHeight(48),
-            side: const BorderSide(color: Colors.white30),
+        Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(
+            color: const Color(0xFF101B23),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFD8BD7A), width: 1.2),
           ),
-          icon: const Icon(Icons.close_rounded),
-          label: Text(_isSpanish ? 'Salir' : 'Exit'),
+          child: _modeCard(
+            icon: _exitModeIcon(),
+            color: const Color(0xFF424446),
+            title: _isSpanish ? 'Salir' : 'Exit',
+            subtitle:
+                _isSpanish
+                    ? 'Regresa al menú principal.'
+                    : 'Return to the main menu.',
+            onTap: _matchLocked ? null : _cancel,
+          ),
         ),
         if (_error != null) ...[
           const SizedBox(height: 10),
@@ -512,36 +580,57 @@ class _DominoTeamsOnlineLobbyScreenState
   );
 
   Widget _modeCard({
-    required IconData icon,
+    required Widget icon,
     required Color color,
     required String title,
     required String subtitle,
     VoidCallback? onTap,
     bool selected = false,
+    IconData trailingIcon = Icons.chevron_right_rounded,
   }) => Material(
-    color: color.withValues(alpha: selected ? 0.28 : 0.18),
-    borderRadius: BorderRadius.circular(22),
+    color: Colors.transparent,
+    borderRadius: BorderRadius.circular(19),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(19),
       child: Container(
-        padding: const EdgeInsets.all(17),
+        constraints: const BoxConstraints(minHeight: 100),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: color, width: selected ? 2.2 : 1.3),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              color.withValues(alpha: onTap == null ? .28 : .86),
+              color.withValues(alpha: onTap == null ? .18 : .56),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(19),
+          border: Border.all(
+            color: selected ? const Color(0xFF64B5F6) : Colors.white38,
+            width: selected ? 2.2 : 1.25,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x44000000),
+              blurRadius: 10,
+              offset: Offset(0, 5),
+            ),
+          ],
         ),
         child: Row(
           children: [
             Container(
-              width: 52,
-              height: 52,
+              width: 62,
+              height: 62,
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.34),
-                borderRadius: BorderRadius.circular(16),
+                color: Colors.black.withValues(alpha: .20),
+                borderRadius: BorderRadius.circular(17),
+                border: Border.all(color: Colors.white24),
               ),
-              child: Icon(icon, color: Colors.white, size: 30),
+              child: Center(child: icon),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -550,7 +639,7 @@ class _DominoTeamsOnlineLobbyScreenState
                     title,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 18,
+                      fontSize: 20,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -559,7 +648,7 @@ class _DominoTeamsOnlineLobbyScreenState
                     subtitle,
                     style: const TextStyle(
                       color: Colors.white70,
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -567,14 +656,60 @@ class _DominoTeamsOnlineLobbyScreenState
               ),
             ),
             Icon(
-              selected ? Icons.check_circle_rounded : Icons.chevron_right,
-              color: selected ? const Color(0xFF64B5F6) : Colors.white54,
+              selected ? Icons.check_circle_rounded : trailingIcon,
+              color: selected ? const Color(0xFF64B5F6) : Colors.white,
+              size: 30,
             ),
           ],
         ),
       ),
     ),
   );
+
+  Widget _onlineModeIcon() => const Stack(
+    clipBehavior: Clip.none,
+    children: [
+      Positioned(
+        left: 0,
+        top: 2,
+        child: Icon(Icons.public_rounded, color: Color(0xFFAADFFF), size: 47),
+      ),
+      Positioned(
+        right: -2,
+        bottom: -2,
+        child: Icon(Icons.view_agenda_rounded, color: Colors.white, size: 29),
+      ),
+    ],
+  );
+
+  Widget _friendsModeIcon() => const Stack(
+    alignment: Alignment.center,
+    clipBehavior: Clip.none,
+    children: [
+      Positioned(
+        left: 1,
+        bottom: 2,
+        child: Icon(Icons.groups_rounded, color: Colors.white, size: 49),
+      ),
+      Positioned(
+        right: -3,
+        top: -3,
+        child: Icon(Icons.wifi_rounded, color: Color(0xFF9CCBEE), size: 24),
+      ),
+      Positioned(
+        right: 3,
+        bottom: 0,
+        child: Icon(
+          Icons.view_agenda_rounded,
+          color: Color(0xFFE7E7E7),
+          size: 21,
+        ),
+      ),
+    ],
+  );
+
+  Widget _exitModeIcon() =>
+      const Icon(Icons.exit_to_app_rounded, color: Color(0xFFE4EBEF), size: 49);
 
   Widget _searchingBody(
     int seconds,
@@ -643,6 +778,7 @@ class _DominoTeamsOnlineLobbyScreenState
                       size: 38,
                     ),
                     Text(
+                      key: const ValueKey('teams-lobby-count'),
                       '$playerCount/4',
                       style: const TextStyle(
                         color: Colors.white,
@@ -660,8 +796,8 @@ class _DominoTeamsOnlineLobbyScreenState
         Text(
           _error ??
               (_isSpanish
-                  ? 'Si faltan jugadores, el CPU ocupa sus puestos.'
-                  : 'CPU players fill every empty seat.'),
+                  ? 'Si faltan jugadores, la mesa se completa para empezar.'
+                  : 'If players are missing, the table is completed so you can start.'),
           textAlign: TextAlign.center,
           style: TextStyle(
             color: _error == null ? Colors.white70 : Colors.redAccent,
@@ -671,7 +807,7 @@ class _DominoTeamsOnlineLobbyScreenState
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
-          onPressed: () => _leaveRoom(closeScreen: false),
+          onPressed: _matchLocked ? null : () => _leaveRoom(closeScreen: false),
           style: OutlinedButton.styleFrom(
             foregroundColor: const Color(0xFFFF6B6B),
             minimumSize: const Size.fromHeight(46),
@@ -747,6 +883,7 @@ class _DominoTeamsOnlineLobbyScreenState
             ],
           ),
           child: Text(
+            key: const ValueKey('teams-lobby-seconds'),
             '$seconds',
             style: const TextStyle(
               color: Colors.white,
@@ -761,6 +898,10 @@ class _DominoTeamsOnlineLobbyScreenState
 
   Widget _seat(int index, List<TeamsOnlinePlayer?> players) {
     final player = index < players.length ? players[index] : null;
+    final visibleAsCpu =
+        player?.isCpu == true &&
+        player?.isFallbackOnlinePlayer != true &&
+        player?.replacedPlayer != true;
     final labels = [
       _isSpanish ? 'Tú' : 'You',
       _isSpanish ? 'Rival derecho' : 'Right rival',
@@ -770,6 +911,7 @@ class _DominoTeamsOnlineLobbyScreenState
     final color =
         index.isEven ? const Color(0xFF64B5F6) : const Color(0xFFFF6B6B);
     return AnimatedContainer(
+      key: ValueKey('teams-lobby-seat-$index'),
       duration: const Duration(milliseconds: 380),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
@@ -797,7 +939,7 @@ class _DominoTeamsOnlineLobbyScreenState
                       color: Colors.white38,
                       size: 23,
                     )
-                    : player.isCpu
+                    : visibleAsCpu
                     ? const Icon(
                       Icons.smart_toy_rounded,
                       color: Colors.white,
@@ -832,7 +974,7 @@ class _DominoTeamsOnlineLobbyScreenState
                 Text(
                   player == null
                       ? (_isSpanish ? 'Buscando...' : 'Searching...')
-                      : '${_badgeEmoji(player.badgeKey)}${player.initials}',
+                      : '${_playerFlagPrefix(player)}${player.displayName}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -886,4 +1028,16 @@ class _DominoTeamsOnlineLobbyScreenState
     'flag_kr' => '🇰🇷 ',
     _ => '',
   };
+
+  String _playerFlagPrefix(TeamsOnlinePlayer player) {
+    final cosmeticFlag = _badgeEmoji(player.badgeKey);
+    if (cosmeticFlag.isNotEmpty) return cosmeticFlag;
+    final rawCountry = player.countryCode.trim().toUpperCase();
+    final country = rawCountry == 'DR' ? 'DO' : rawCountry;
+    if (!RegExp(r'^[A-Z]{2}$').hasMatch(country)) return '';
+    final emoji = String.fromCharCodes(
+      country.codeUnits.map((character) => character + 127397),
+    );
+    return '$emoji ';
+  }
 }

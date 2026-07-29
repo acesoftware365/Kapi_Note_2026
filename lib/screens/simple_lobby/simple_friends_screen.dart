@@ -9,20 +9,31 @@ class SimpleLobbyFriend {
   const SimpleLobbyFriend({
     required this.publicId,
     required this.initials,
+    this.displayName = '',
     required this.countryCode,
     required this.code,
     required this.avatarKey,
     required this.points,
     required this.online,
+    this.macPro = false,
   });
 
   final String publicId;
   final String initials;
+  final String displayName;
   final String countryCode;
   final String code;
   final String avatarKey;
   final int points;
   final bool online;
+  final bool macPro;
+
+  String get effectiveDisplayName {
+    final normalized = DominoPlayerProfile.normalizeDisplayName(displayName);
+    return DominoPlayerProfile.isValidDisplayName(normalized)
+        ? normalized
+        : initials;
+  }
 }
 
 class SimpleFriendsSelection {
@@ -216,17 +227,19 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
         SimpleLobbyFriend(
           publicId: id,
           initials: data['initials'] as String? ?? id.split('.').first,
+          displayName: data['displayName'] as String? ?? '',
           countryCode: data['countryCode'] as String? ?? '',
           code: code,
           avatarKey: data['avatarKey'] as String? ?? 'person',
           points: rawPoints is num ? rawPoints.toInt() : 0,
           online: data['status'] == 'online' && recentlyActive,
+          macPro: data['macPro'] == true,
         ),
       );
     }
     friends.sort((a, b) {
       if (a.online != b.online) return a.online ? -1 : 1;
-      return a.initials.compareTo(b.initials);
+      return a.effectiveDisplayName.compareTo(b.effectiveDisplayName);
     });
     return friends;
   }
@@ -336,7 +349,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              request.fromInitials,
+              request.effectiveDisplayName,
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w900,
@@ -452,6 +465,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
         'fromId': fromId,
         'toId': toId,
         'fromInitials': widget.profile.initials,
+        'fromDisplayName': widget.profile.effectiveDisplayName,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -840,7 +854,7 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
         children: [
           Flexible(
             child: Text(
-              '${friend.initials} · $country',
+              '${friend.effectiveDisplayName} · $country',
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: Colors.white,
@@ -848,6 +862,17 @@ class _SimpleFriendsScreenState extends State<SimpleFriendsScreen> {
               ),
             ),
           ),
+          if (friend.macPro) ...[
+            const SizedBox(width: 6),
+            const Tooltip(
+              message: 'Kapi Note Pro',
+              child: Icon(
+                Icons.workspace_premium_rounded,
+                color: Color(0xFFFFD36B),
+                size: 19,
+              ),
+            ),
+          ],
         ],
       ),
       subtitle: Text(
@@ -951,11 +976,22 @@ class _SimpleFriendRequest {
     required this.id,
     required this.fromId,
     required this.fromInitials,
+    this.fromDisplayName = '',
   });
 
   final String id;
   final String fromId;
   final String fromInitials;
+  final String fromDisplayName;
+
+  String get effectiveDisplayName {
+    final normalized = DominoPlayerProfile.normalizeDisplayName(
+      fromDisplayName,
+    );
+    return DominoPlayerProfile.isValidDisplayName(normalized)
+        ? normalized
+        : fromInitials;
+  }
 
   static _SimpleFriendRequest fromDocument(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
@@ -965,6 +1001,7 @@ class _SimpleFriendRequest {
       id: doc.id,
       fromId: (data['fromId'] as String? ?? '').toUpperCase(),
       fromInitials: data['fromInitials'] as String? ?? '??',
+      fromDisplayName: data['fromDisplayName'] as String? ?? '',
     );
   }
 }

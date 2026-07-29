@@ -144,18 +144,24 @@ class DominoTierVisual {
 class DominoPlayerProfile {
   const DominoPlayerProfile({
     required this.initials,
+    this.displayName = '',
     required this.countryCode,
     required this.code,
     required this.avatarKey,
   });
 
   final String initials;
+  final String displayName;
   final String countryCode;
   final String code;
   final String avatarKey;
 
-  String get publicId => '$initials.$countryCode.$code';
+  String get publicId => '$initials.${countryCode.trim().toUpperCase()}.$code';
   String get shortId => code;
+  String get effectiveDisplayName {
+    final normalized = normalizeDisplayName(displayName);
+    return isValidDisplayName(normalized) ? normalized : initials;
+  }
 
   String? get avatarAssetPath => avatarAssetForKey(avatarKey);
 
@@ -178,6 +184,7 @@ class DominoPlayerProfile {
       'assets/kapi_shop/avatars/avatar_silver_tactician.png',
     'sunrise_champion' =>
       'assets/kapi_shop/avatars/avatar_sunrise_champion.png',
+    'pro_master' => 'assets/kapi_shop/avatars/avatar_pro_master.png',
     _ => null,
   };
 
@@ -213,6 +220,8 @@ class DominoPlayerProfile {
         return Icons.workspace_premium_rounded;
       case 'sunrise_champion':
         return Icons.emoji_events_rounded;
+      case 'pro_master':
+        return Icons.workspace_premium_rounded;
       case 'person':
       default:
         return Icons.person_rounded;
@@ -251,6 +260,8 @@ class DominoPlayerProfile {
         return const Color(0xFF287A78);
       case 'sunrise_champion':
         return const Color(0xFFE97832);
+      case 'pro_master':
+        return const Color(0xFFD6B56B);
       case 'person':
       default:
         return const Color(0xFF1E88E5);
@@ -267,13 +278,20 @@ class DominoPlayerProfile {
     if (savedCode == null || savedCode.toUpperCase() != code) {
       await prefs.setString('kapi_player_profile_code', code);
     }
+    final savedDisplayName =
+        prefs.getString('kapi_player_profile_display_name') ?? '';
+    final normalizedDisplayName = normalizeDisplayName(savedDisplayName);
+    final savedCountry = prefs.getString('kapi_player_profile_country') ?? 'US';
+    final normalizedCountry = normalizeCountryCode(savedCountry);
     return DominoPlayerProfile(
       initials:
           (prefs.getString('kapi_player_profile_initials') ?? 'JP')
               .toUpperCase(),
-      countryCode:
-          (prefs.getString('kapi_player_profile_country') ?? 'US')
-              .toUpperCase(),
+      displayName:
+          isValidDisplayName(normalizedDisplayName)
+              ? normalizedDisplayName
+              : '',
+      countryCode: normalizedCountry,
       code: code,
       avatarKey: prefs.getString('kapi_player_profile_avatar') ?? 'person',
     );
@@ -281,7 +299,11 @@ class DominoPlayerProfile {
 
   Map<String, dynamic> toAccountMap() => {
     'initials': initials.toUpperCase(),
-    'countryCode': countryCode.toUpperCase(),
+    'displayName':
+        isValidDisplayName(displayName)
+            ? normalizeDisplayName(displayName)
+            : '',
+    'countryCode': countryCode.trim().toUpperCase(),
     'code': code.toUpperCase(),
     'publicId': publicId.toUpperCase(),
     'avatarKey': avatarKey,
@@ -290,7 +312,10 @@ class DominoPlayerProfile {
   static DominoPlayerProfile? fromAccountMap(Map<String, dynamic>? data) {
     if (data == null) return null;
     final initials = (data['initials'] as String? ?? '').toUpperCase();
-    final country = (data['countryCode'] as String? ?? '').toUpperCase();
+    final displayName = normalizeDisplayName(
+      data['displayName'] as String? ?? '',
+    );
+    final country = normalizeCountryCode(data['countryCode'] as String? ?? '');
     final code = (data['code'] as String? ?? '').toUpperCase();
     final avatar = data['avatarKey'] as String? ?? 'person';
     if (initials.length != 2 || country.length != 2 || !_isValidCode(code)) {
@@ -298,6 +323,7 @@ class DominoPlayerProfile {
     }
     return DominoPlayerProfile(
       initials: initials,
+      displayName: isValidDisplayName(displayName) ? displayName : '',
       countryCode: country,
       code: code,
       avatarKey: avatar,
@@ -310,13 +336,88 @@ class DominoPlayerProfile {
       'kapi_player_profile_initials',
       initials.toUpperCase(),
     );
+    if (isValidDisplayName(displayName)) {
+      await prefs.setString(
+        'kapi_player_profile_display_name',
+        normalizeDisplayName(displayName),
+      );
+    } else {
+      await prefs.remove('kapi_player_profile_display_name');
+    }
     await prefs.setString(
       'kapi_player_profile_country',
-      countryCode.toUpperCase(),
+      countryCode.trim().toUpperCase(),
     );
     await prefs.setString('kapi_player_profile_code', code.toUpperCase());
     await prefs.setString('kapi_player_profile_avatar', avatarKey);
     await prefs.setBool('kapi_player_profile_saved', true);
+  }
+
+  static String normalizeDisplayName(String value) =>
+      value.trim().replaceAll(RegExp(' +'), ' ');
+
+  static bool isValidDisplayName(String value) {
+    final normalized = normalizeDisplayName(value);
+    if (normalized.length < 2 || normalized.length > 16) return false;
+    return RegExp(
+      r"^[A-Za-zÀ-ÖØ-öø-ÿĀ-ž\u1E00-\u1EFF]+(?:[ '\u2019-][A-Za-zÀ-ÖØ-öø-ÿĀ-ž\u1E00-\u1EFF]+)*$",
+    ).hasMatch(normalized);
+  }
+
+  static String initialsForDisplayName(String value) {
+    final normalized = normalizeDisplayName(value);
+    final words = normalized
+        .split(RegExp(r"[ '\u2019-]+"))
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+    final source =
+        words.length >= 2
+            ? '${words.first[0]}${words[1][0]}'
+            : (words.isEmpty ? '' : words.first);
+    final ascii = _latinLettersToAscii(
+      source,
+    ).replaceAll(RegExp('[^A-Za-z]'), '');
+    if (ascii.length >= 2) return ascii.substring(0, 2).toUpperCase();
+    return ascii.toUpperCase().padRight(2, 'X');
+  }
+
+  static String normalizeCountryCode(String value) {
+    return value.trim().toUpperCase();
+  }
+
+  static String _latinLettersToAscii(String value) {
+    var result = value;
+    const replacements = <String, String>{
+      'A': 'ÀÁÂÃÄÅĀĂĄǍǞǠǺȀȂẠẢẤẦẨẪẬẮẰẲẴẶ',
+      'C': 'ÇĆĈĊČ',
+      'D': 'ÐĎĐ',
+      'E': 'ÈÉÊËĒĔĖĘĚȄȆẸẺẼẾỀỂỄỆ',
+      'G': 'ĜĞĠĢǦ',
+      'H': 'ĤĦ',
+      'I': 'ÌÍÎÏĨĪĬĮİǏȈȊỊỈ',
+      'J': 'Ĵ',
+      'K': 'Ķ',
+      'L': 'ĹĻĽĿŁ',
+      'N': 'ÑŃŅŇŊǸ',
+      'O': 'ÒÓÔÕÖØŌŎŐǑǪǬȌȎỌỎỐỒỔỖỘỚỜỞỠỢ',
+      'R': 'ŔŖŘ',
+      'S': 'ŚŜŞŠȘ',
+      'T': 'ŢŤŦȚ',
+      'U': 'ÙÚÛÜŨŪŬŮŰŲǓȔȖỤỦỨỪỬỮỰ',
+      'W': 'ŴẀẂẄ',
+      'Y': 'ÝŶŸỲỴỶỸ',
+      'Z': 'ŹŻŽ',
+    };
+    for (final entry in replacements.entries) {
+      for (final character in entry.value.split('')) {
+        result = result.replaceAll(character, entry.key);
+        result = result.replaceAll(
+          character.toLowerCase(),
+          entry.key.toLowerCase(),
+        );
+      }
+    }
+    return result;
   }
 
   static bool _isValidCode(String? value) {

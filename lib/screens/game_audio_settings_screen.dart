@@ -220,8 +220,8 @@ class _GameAudioSettingsScreenState extends State<GameAudioSettingsScreen> {
                 const SizedBox(height: 12),
                 Text(
                   spanish
-                      ? 'Estos controles solo afectan las partidas contra CPU y online.'
-                      : 'These controls only affect CPU and online matches.',
+                      ? 'Estos controles afectan las partidas online.'
+                      : 'These controls affect online matches.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Color(0xFFCED2D9)),
                 ),

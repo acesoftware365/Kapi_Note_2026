@@ -156,8 +156,8 @@ class _PremiumScreenState extends State<PremiumScreen> {
                     ? 'Gracias por apoyar a Kapi Note.'
                     : 'Thank you for supporting Kapi Note.')
                 : (isSpanish
-                    ? 'Juega sin anuncios y apoya a Kapi Note.'
-                    : 'Play without ads and support Kapi Note.'),
+                    ? 'Recibe beneficios cada mes y lleva tu experiencia de dominó a otro nivel.'
+                    : 'Get new benefits every month and take your domino experience to the next level.'),
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: _copy,
@@ -168,8 +168,23 @@ class _PremiumScreenState extends State<PremiumScreen> {
           ),
           const SizedBox(height: 20),
           _buildComparison(isSpanish),
+          const SizedBox(height: 14),
+          _buildRecurringValueBanner(isSpanish),
           if (premium.isPremium) ...[
             const SizedBox(height: 18),
+            if (premium.isMacPro) ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pushNamed(context, '/mac-pro'),
+                  icon: const Icon(Icons.dashboard_customize_rounded),
+                  label: Text(
+                    isSpanish ? 'Abrir beneficios Pro' : 'Open Pro benefits',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             _buildManageSubscriptionButton(context, isSpanish),
           ] else ...[
             const SizedBox(height: 20),
@@ -308,22 +323,21 @@ class _PremiumScreenState extends State<PremiumScreen> {
     final free = [
       isSpanish ? 'Marcador de dominó' : 'Domino scorekeeper',
       isSpanish ? 'Configuración de juego' : 'Game settings',
-      isSpanish ? 'Partidas online y contra CPU' : 'Online and CPU games',
+      isSpanish ? 'Partidas online' : 'Online games',
       isSpanish ? 'Tienda y estilos personalizados' : 'Shop and custom styles',
       isSpanish ? 'Anuncios incluidos' : 'Includes ads',
     ];
     final pro = [
-      isSpanish ? 'Sin anuncios en toda la app' : 'No ads anywhere in the app',
+      isSpanish ? '150 KC en cada mes activo' : '150 KC every active month',
+      isSpanish ? 'Colección exclusiva Pro' : 'Exclusive Pro collection',
+      isSpanish ? 'Salas con reglas personalizadas' : 'Custom-rule rooms',
+      isSpanish ? 'Torneos y eventos Pro' : 'Pro tournaments and events',
       isSpanish
-          ? 'Juegos y notas sin interrupciones'
-          : 'Uninterrupted games and notes',
+          ? 'Insignia en perfil, amigos y ranking'
+          : 'Badge on profile, friends and ranking',
       isSpanish
-          ? 'Acceso a futuras funciones Pro'
-          : 'Access to future Pro features',
-      isSpanish
-          ? 'Restaura tu compra fácilmente'
-          : 'Easily restore your purchase',
-      isSpanish ? 'Apoyas una app independiente' : 'Support an independent app',
+          ? 'Sin anuncios en dispositivos compatibles'
+          : 'No ads on supported devices',
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -345,6 +359,41 @@ class _PremiumScreenState extends State<PremiumScreen> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildRecurringValueBanner(bool isSpanish) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _gold.withValues(alpha: .17),
+            _surface.withValues(alpha: .82),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: _gold.withValues(alpha: .72)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.redeem_rounded, color: _gold, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              isSpanish
+                  ? '150 KC cada mes  ·  Nueva colección Pro cada temporada'
+                  : '150 KC every month  ·  New Pro collection every season',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                height: 1.3,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

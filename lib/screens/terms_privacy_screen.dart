@@ -80,7 +80,7 @@ Debes jugar de manera justa. No puedes manipular partidas, puntos, ranking, soli
 
 Las partidas online dependen de la conexion de ambos jugadores y de los servicios de Firebase. Una desconexion, salida de sala o problema de red puede interrumpir o terminar una partida.
 
-El ID publico identifica tu perfil y conserva tu progreso. No compartas informacion personal en tus iniciales, invitaciones o comunicaciones relacionadas con el juego.
+El ID publico identifica tu perfil y conserva tu progreso. No compartas informacion personal sensible en tu nombre visible, invitaciones o comunicaciones relacionadas con el juego.
 
 El ranking solo representa resultados registrados por Kapi Note. No es un premio monetario y puede ajustarse para mantener una competencia justa.'''
                           : '''Block Dominoes is currently available as a beta feature. Matches may change as we continue improving rules, synchronization, and performance.
@@ -89,7 +89,7 @@ You must play fairly. You may not manipulate matches, points, rankings, friend r
 
 Online matches depend on both players' connections and Firebase services. A disconnection, room exit, or network issue may interrupt or end a match.
 
-Your public ID identifies your profile and keeps your progress. Do not include personal information in initials, invitations, or game-related communications.
+Your public ID identifies your profile and keeps your progress. Do not include sensitive personal information in your display name, invitations, or game-related communications.
 
 The ranking only represents results recorded by Kapi Note. It has no monetary value and may be adjusted to maintain fair competition.''',
                 ),
@@ -99,16 +99,16 @@ The ranking only represents results recorded by Kapi Note. It has no monetary va
                   icon: Icons.shield_rounded,
                   body:
                       spanish
-                          ? '''Para ofrecer perfiles, amigos, lobby, matchmaking, partidas online y ranking, Kapi Note puede guardar en Firebase tu ID publico, iniciales, pais seleccionado, avatar, estado online, solicitudes, salas, resultados, puntos y actividad necesaria para sincronizar la partida.
+                          ? '''Para ofrecer perfiles, amigos, lobby, matchmaking, partidas online y ranking, Kapi Note puede guardar en Firebase tu ID publico, nombre visible, iniciales internas, pais seleccionado, avatar, estado online, solicitudes, salas, resultados, puntos y actividad necesaria para sincronizar la partida.
 
-Otros jugadores pueden ver tu ID publico, iniciales, pais, avatar, rango, puntos y estado online. Tu nombre real, correo y datos de pago no se muestran como parte del perfil del juego.
+Otros jugadores pueden ver tu ID publico, nombre visible, pais, avatar, rango, puntos y estado online. Tu correo y datos de pago no se muestran como parte del perfil. El nombre visible es publico: usa un apodo si no deseas mostrar tu nombre real.
 
 Las preferencias de sonido, idioma, tema y tamano de fichas pueden guardarse localmente en tu dispositivo. Analytics puede registrar el modo seleccionado, pais seleccionado, inicio o final de partidas y eventos de uso para mejorar la app.
 
 No vendemos tus datos personales. Los anuncios, compras y servicios externos procesan informacion de acuerdo con sus propias politicas.'''
-                          : '''To provide profiles, friends, lobby, matchmaking, online matches, and rankings, Kapi Note may store your public ID, initials, selected country, avatar, online status, requests, rooms, results, points, and activity needed to synchronize a match in Firebase.
+                          : '''To provide profiles, friends, lobby, matchmaking, online matches, and rankings, Kapi Note may store your public ID, display name, internal initials, selected country, avatar, online status, requests, rooms, results, points, and activity needed to synchronize a match in Firebase.
 
-Other players may see your public ID, initials, country, avatar, rank, points, and online status. Your real name, email, and payment details are not displayed as part of the game profile.
+Other players may see your public ID, display name, country, avatar, rank, points, and online status. Your email and payment details are not displayed as part of the profile. The display name is public, so use a nickname if you do not want to show your real name.
 
 Sound, language, theme, and tile-size preferences may be stored locally on your device. Analytics may record the selected mode, selected country, match starts or completions, and usage events to improve the app.
 

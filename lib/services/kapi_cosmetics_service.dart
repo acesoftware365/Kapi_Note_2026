@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -18,6 +19,7 @@ enum KapiCosmeticType {
   avatar,
   flag,
   dice,
+  specialEffect,
 }
 
 class KapiCosmeticItem {
@@ -34,6 +36,7 @@ class KapiCosmeticItem {
     this.avatarKey,
     this.exclusive = false,
     this.storeVisible = true,
+    this.macProOnly = false,
   });
 
   final String id;
@@ -48,6 +51,7 @@ class KapiCosmeticItem {
   final String? avatarKey;
   final bool exclusive;
   final bool storeVisible;
+  final bool macProOnly;
 
   String nameFor(Locale locale) =>
       locale.languageCode == 'es' ? nameEs : nameEn;
@@ -1013,6 +1017,122 @@ class KapiCosmeticsService extends ChangeNotifier {
       exclusive: true,
       storeVisible: false,
     ),
+    // Initial macOS Pro collection. These are additive and do not replace or
+    // remove any item that was already available to Free users.
+    KapiCosmeticItem(
+      id: 'mac_pro_table_sapphire',
+      type: KapiCosmeticType.table,
+      nameEs: 'Salón zafiro Pro',
+      nameEn: 'Pro Sapphire Lounge',
+      price: 0,
+      primary: Color(0xFF071B48),
+      secondary: Color(0xFF68C8FF),
+      emoji: '💎',
+      previewAsset: 'assets/kapi_shop/tables/table_pro_sapphire.png',
+      macProOnly: true,
+      storeVisible: false,
+    ),
+    KapiCosmeticItem(
+      id: 'mac_pro_table_crimson',
+      type: KapiCosmeticType.table,
+      nameEs: 'Club carmesí Pro',
+      nameEn: 'Pro Crimson Club',
+      price: 0,
+      primary: Color(0xFF54111D),
+      secondary: Color(0xFFFFC65B),
+      emoji: '♛',
+      previewAsset: 'assets/kapi_shop/tables/table_pro_crimson.png',
+      macProOnly: true,
+      storeVisible: false,
+    ),
+    KapiCosmeticItem(
+      id: 'mac_pro_centerpiece_crown',
+      type: KapiCosmeticType.centerpiece,
+      nameEs: 'Corona de temporada',
+      nameEn: 'Season Crown',
+      price: 0,
+      primary: Color(0xFF37215E),
+      secondary: Color(0xFFFFD36B),
+      emoji: '👑',
+      previewAsset: 'assets/kapi_shop/centerpieces/centerpiece_pro_crown.png',
+      macProOnly: true,
+      storeVisible: false,
+    ),
+    KapiCosmeticItem(
+      id: 'mac_pro_domino_aurora',
+      type: KapiCosmeticType.domino,
+      nameEs: 'Aurora Pro',
+      nameEn: 'Pro Aurora',
+      price: 0,
+      primary: Color(0xFF123D46),
+      secondary: Color(0xFF72FFE0),
+      emoji: '✦',
+      macProOnly: true,
+      storeVisible: false,
+    ),
+    KapiCosmeticItem(
+      id: 'mac_pro_domino_solar',
+      type: KapiCosmeticType.domino,
+      nameEs: 'Solar Pro',
+      nameEn: 'Pro Solar',
+      price: 0,
+      primary: Color(0xFF30141A),
+      secondary: Color(0xFFFFD36B),
+      emoji: '☀',
+      macProOnly: true,
+      storeVisible: false,
+    ),
+    KapiCosmeticItem(
+      id: 'mac_pro_tray_starlight',
+      type: KapiCosmeticType.handTray,
+      nameEs: 'Bandeja luz estelar',
+      nameEn: 'Starlight Tray',
+      price: 0,
+      primary: Color(0xFF141C39),
+      secondary: Color(0xFFB9A4FF),
+      emoji: '✧',
+      previewAsset: 'assets/kapi_shop/trays/tray_pro_starlight.png',
+      macProOnly: true,
+      storeVisible: false,
+    ),
+    KapiCosmeticItem(
+      id: 'mac_pro_avatar_founder',
+      type: KapiCosmeticType.avatar,
+      nameEs: 'Maestro Pro',
+      nameEn: 'Pro Master',
+      price: 0,
+      primary: Color(0xFF6E182B),
+      secondary: Color(0xFFFFD36B),
+      emoji: '🏆',
+      previewAsset: 'assets/kapi_shop/avatars/avatar_pro_master.png',
+      avatarKey: 'pro_master',
+      macProOnly: true,
+      storeVisible: false,
+    ),
+    KapiCosmeticItem(
+      id: 'effect_classic',
+      type: KapiCosmeticType.specialEffect,
+      nameEs: 'Efecto clásico',
+      nameEn: 'Classic Effect',
+      price: 0,
+      primary: Color(0xFF132235),
+      secondary: Color(0xFFFFD36B),
+      emoji: '✦',
+      storeVisible: false,
+    ),
+    KapiCosmeticItem(
+      id: 'mac_pro_effect_celestial',
+      type: KapiCosmeticType.specialEffect,
+      nameEs: 'Efecto celeste Pro',
+      nameEn: 'Pro Celestial Effect',
+      price: 0,
+      primary: Color(0xFF10162F),
+      secondary: Color(0xFFFFD36B),
+      emoji: '✨',
+      previewAsset: 'assets/kapi_shop/effects/effect_pro_celestial.png',
+      macProOnly: true,
+      storeVisible: false,
+    ),
   ];
 
   bool _loaded = false;
@@ -1021,11 +1141,13 @@ class KapiCosmeticsService extends ChangeNotifier {
   Set<String> _owned = <String>{};
   Set<String> _claims = <String>{};
   final Map<KapiCosmeticType, String> _equipped = {};
+  bool _macProAccess = false;
 
   bool get loaded => _loaded;
   int get balance => _balance;
   int get revision => _revision;
   Set<String> get owned => Set.unmodifiable(_owned);
+  bool get macProAccess => _macProAccess;
 
   static String defaultId(KapiCosmeticType type) => switch (type) {
     KapiCosmeticType.table => 'table_classic',
@@ -1035,6 +1157,7 @@ class KapiCosmeticsService extends ChangeNotifier {
     KapiCosmeticType.avatar => 'avatar_person',
     KapiCosmeticType.flag => 'flag_none',
     KapiCosmeticType.dice => 'dice_classic',
+    KapiCosmeticType.specialEffect => 'effect_classic',
   };
 
   static KapiCosmeticItem byId(String id) =>
@@ -1049,7 +1172,22 @@ class KapiCosmeticsService extends ChangeNotifier {
   }
 
   bool owns(KapiCosmeticItem item) =>
-      item.price == 0 || _owned.contains(item.id);
+      (item.macProOnly && Platform.isMacOS && _macProAccess) ||
+      (!item.macProOnly && item.price == 0) ||
+      (!item.macProOnly && _owned.contains(item.id));
+
+  Future<void> setMacProAccess(bool enabled) async {
+    if (!Platform.isMacOS || _macProAccess == enabled) return;
+    _macProAccess = enabled;
+    if (!enabled) {
+      for (final type in KapiCosmeticType.values) {
+        final selected = byId(_equipped[type] ?? defaultId(type));
+        if (selected.macProOnly) _equipped[type] = defaultId(type);
+      }
+      await _persist();
+    }
+    notifyListeners();
+  }
 
   Future<void> load() async {
     if (_loaded) return;
@@ -1083,7 +1221,9 @@ class KapiCosmeticsService extends ChangeNotifier {
   }
 
   Future<bool> purchase(KapiCosmeticItem item) async {
-    if (!_loaded || owns(item) || _balance < item.price) return false;
+    if (item.macProOnly || !_loaded || owns(item) || _balance < item.price) {
+      return false;
+    }
     _balance -= item.price;
     _owned.add(item.id);
     _bumpRevision();
@@ -1103,6 +1243,7 @@ class KapiCosmeticsService extends ChangeNotifier {
       final profile = await DominoPlayerProfile.load();
       final updated = DominoPlayerProfile(
         initials: profile.initials,
+        displayName: profile.displayName,
         countryCode: profile.countryCode,
         code: profile.code,
         avatarKey: item.avatarKey!,

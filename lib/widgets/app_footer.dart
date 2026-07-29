@@ -6,14 +6,12 @@ import '../url_link/link_button.dart';
 class AppFooter extends StatelessWidget {
   final EdgeInsetsGeometry padding;
 
-  const AppFooter({
-    super.key,
-    this.padding = const EdgeInsets.only(bottom: 8),
-  });
+  const AppFooter({super.key, this.padding = const EdgeInsets.only(bottom: 8)});
 
   @override
   Widget build(BuildContext context) {
-    final TextStyle? textStyle = Theme.of(context).textTheme.bodySmall ??
+    final TextStyle? textStyle =
+        Theme.of(context).textTheme.bodySmall ??
         Theme.of(context).textTheme.bodyMedium;
 
     return Padding(
@@ -25,9 +23,10 @@ class AppFooter extends StatelessWidget {
               Localizations.localeOf(context).languageCode;
           final String appTitle =
               AppLocalizations.of(context)?.appTitle ?? 'App';
-          final String versionValue = snapshot.hasData
-              ? '${snapshot.data!.version}+${snapshot.data!.buildNumber}'
-              : '';
+          final String versionValue =
+              snapshot.hasData
+                  ? '${snapshot.data!.version}+${snapshot.data!.buildNumber}'
+                  : '';
           final String subjectValue = '$appTitle need support';
           final String bodyValue = () {
             switch (languageCode) {
@@ -99,9 +98,8 @@ class AppFooter extends StatelessWidget {
                     '- \n';
             }
           }();
-          final String versionText = versionValue.isNotEmpty
-              ? 'Version $versionValue'
-              : 'Version';
+          final String versionText =
+              versionValue.isNotEmpty ? 'Version $versionValue' : 'Version';
           final emailLink = LinkButton(
             text: 'sales@liisgo.com',
             url:

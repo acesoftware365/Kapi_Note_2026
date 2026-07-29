@@ -10,11 +10,14 @@ import '../constants/domino_game_config.dart';
 import '../services/audio_manager.dart';
 import '../services/block_room_service.dart';
 import '../services/domino_display_settings.dart';
+import '../services/domino_match_mode.dart';
 import '../services/kapi_cosmetics_service.dart';
 import '../widgets/adaptive_domino_hand_tray.dart';
 import '../widgets/anchored_adaptive_banner_ad.dart';
 import '../widgets/game_audio_controls.dart';
 import '../widgets/domino_result_celebration.dart';
+import '../widgets/domino_special_play_effect.dart';
+import '../widgets/draw_pool_action_button.dart';
 import '../widgets/kapi_centerpiece_overlay.dart';
 import 'admob_variable.dart';
 import 'domino_player_profile.dart';
@@ -79,11 +82,35 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
   String? _automationHandledMatch;
   String? _recordedOnlineRoundKey;
   int _automationCompletedMatches = 0;
+  Timer? _specialEffectTimer;
+  DominoSpecialEffectKind? _specialEffectKind;
+  String? _specialEffectPlayerName;
+  int _specialEffectSequence = 0;
+  String? _specialEffectGameId;
+  int _lastSpecialEffectRevision = -1;
+  bool _blockResultPending = false;
+  Timer? _fallbackTurnTimer;
+  Timer? _fallbackReactionTimer;
+  Timer? _quickChatNoticeTimer;
+  int _fallbackTurnScheduledRevision = -1;
+  int _fallbackReactionScheduledRevision = -1;
+  int _lastQuickChatSequence = -1;
+  String? _quickChatNoticePlayerName;
+  String? _quickChatNoticeMessageId;
+  String? _quickChatNoticeEmoji;
 
   String get _adUnitId =>
       defaultTargetPlatform == TargetPlatform.android
           ? AdmobVariable.bannerAndroidUnit
           : AdmobVariable.bannerIosUnit;
+
+  bool get _isTablet {
+    final size = MediaQuery.sizeOf(context);
+    return size.shortestSide >= 550 || size.longestSide >= 1100;
+  }
+
+  bool get _usesStableSettingsDialog =>
+      defaultTargetPlatform == TargetPlatform.iOS || _isTablet;
 
   String _myPlayerId(_OnlineGame game) {
     final routePlayerId = widget.playerId?.toUpperCase();
@@ -120,6 +147,10 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
   void dispose() {
     KapiCosmeticsService.instance.removeListener(_handleCosmeticsChanged);
     _rematchTimer?.cancel();
+    _specialEffectTimer?.cancel();
+    _fallbackTurnTimer?.cancel();
+    _fallbackReactionTimer?.cancel();
+    _quickChatNoticeTimer?.cancel();
     _celebrationController.dispose();
     _sideChoicePulse.dispose();
     DominoDisplaySettings.playedTileScale.removeListener(
@@ -309,8 +340,16 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     Future<void>.delayed(const Duration(milliseconds: 350), () {
       if (!mounted) return;
       if (playable == null) {
+        if (game.canDraw(myPlayerId)) {
+          debugPrint(
+            '[KAPI_AUTOMATION] ${game.displayNameFor(myPlayerId)} draws '
+            'revision=${game.revision} pool=${game.pool.length}',
+          );
+          unawaited(_draw(game));
+          return;
+        }
         debugPrint(
-          '[KAPI_AUTOMATION] ${game.initialsFor(myPlayerId)} passes '
+          '[KAPI_AUTOMATION] ${game.displayNameFor(myPlayerId)} passes '
           'revision=${game.revision}',
         );
         unawaited(_pass(game));
@@ -319,7 +358,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
       final side =
           sides.contains(_BoardSide.right) ? _BoardSide.right : sides.first;
       debugPrint(
-        '[KAPI_AUTOMATION] ${game.initialsFor(myPlayerId)} plays '
+        '[KAPI_AUTOMATION] ${game.displayNameFor(myPlayerId)} plays '
         '${playable.label} ${side.name} revision=${game.revision}',
       );
       unawaited(_commitTile(playable, side));
@@ -330,7 +369,8 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     final myPlayerId = _myPlayerId(game);
     if (!game.isMyTurn(myPlayerId) ||
         game.roundOver ||
-        game.hasMove(myPlayerId)) {
+        game.hasMove(myPlayerId) ||
+        (game.mode.usesPool && game.pool.isNotEmpty)) {
       return;
     }
     await AudioManager.instance.playSfx(AudioAssets.buttonTap);
@@ -342,10 +382,28 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
         final freshPlayerId = _myPlayerId(fresh);
         if (!fresh.isMyTurn(freshPlayerId) ||
             fresh.roundOver ||
-            fresh.hasMove(freshPlayerId)) {
+            fresh.hasMove(freshPlayerId) ||
+            (fresh.mode.usesPool && fresh.pool.isNotEmpty)) {
           return;
         }
         final next = fresh.pass(freshPlayerId);
+        transaction.set(ref, next.toMap(), SetOptions(merge: true));
+      });
+    });
+  }
+
+  Future<void> _draw(_OnlineGame game) async {
+    final myPlayerId = _myPlayerId(game);
+    if (!game.canDraw(myPlayerId)) return;
+    await AudioManager.instance.playSfx(AudioAssets.buttonTap);
+    await _runOnlineAction('draw', () async {
+      await _db.runTransaction((transaction) async {
+        final ref = _db.collection('kapi_online_games').doc(widget.gameId);
+        final snapshot = await transaction.get(ref);
+        final fresh = _OnlineGame.fromSnapshot(snapshot);
+        final freshPlayerId = _myPlayerId(fresh);
+        if (!fresh.canDraw(freshPlayerId)) return;
+        final next = fresh.drawTile(freshPlayerId);
         transaction.set(ref, next.toMap(), SetOptions(merge: true));
       });
     });
@@ -393,8 +451,10 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
         AudioManager.instance.playSfx(AudioAssets.turnNotification);
       }
       if (game.roundOver && !_lastAudioRoundOver) {
-        if (game.matchOver) {
-          AudioManager.instance.playSfx(AudioAssets.gameOver);
+        if (game.lastAction['blocked'] == true) {
+          AudioManager.instance.playSfx(AudioAssets.dominoBlocked);
+        } else if (game.matchOver) {
+          AudioManager.instance.playSfx(AudioAssets.dominoLastTile);
           AudioManager.instance.playMusic(
             game.winnerId == myPlayerId
                 ? AudioAssets.victoryMusic
@@ -402,13 +462,244 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
             loop: false,
           );
         } else {
-          AudioManager.instance.playSfx(AudioAssets.roundWin);
+          AudioManager.instance.playSfx(AudioAssets.dominoLastTile);
         }
       }
       _lastAudioBoardLength = game.board.length;
       _lastAudioTurnId = game.turnId;
       _lastAudioRoundOver = game.roundOver;
     });
+  }
+
+  void _handleSpecialEffects(_OnlineGame game) {
+    if (_specialEffectGameId != game.id) {
+      _specialEffectGameId = game.id;
+      _lastSpecialEffectRevision =
+          game.roundOver && game.lastAction['type'] == 'roundEnd'
+              ? game.revision - 1
+              : game.revision;
+      if (_lastSpecialEffectRevision == game.revision) return;
+    }
+    if (game.revision <= _lastSpecialEffectRevision) return;
+    _lastSpecialEffectRevision = game.revision;
+    final action = game.lastAction;
+    final type = action['type'] as String? ?? '';
+    final playerId = (action['player'] as String? ?? '').toUpperCase();
+    final playerName = playerId.isEmpty ? null : game.displayNameFor(playerId);
+    DominoSpecialEffectKind? kind;
+    if (type == 'pass') {
+      kind = DominoSpecialEffectKind.pass;
+      AudioManager.instance.playSfx(AudioAssets.dominoPass);
+    } else if (type == 'roundEnd' && action['blocked'] == true) {
+      kind = DominoSpecialEffectKind.blocked;
+    } else if (type == 'roundEnd' && action['special'] == 'capicua') {
+      kind = DominoSpecialEffectKind.capicua;
+    } else if (type == 'roundEnd') {
+      kind = DominoSpecialEffectKind.domino;
+    }
+    if (kind == null) return;
+    if (kind == DominoSpecialEffectKind.blocked) {
+      _blockResultPending = true;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showSpecialEffect(kind!, playerName: playerName);
+    });
+  }
+
+  void _showSpecialEffect(DominoSpecialEffectKind kind, {String? playerName}) {
+    _specialEffectTimer?.cancel();
+    final duration = switch (kind) {
+      DominoSpecialEffectKind.pass ||
+      DominoSpecialEffectKind.roundPass => const Duration(milliseconds: 2250),
+      DominoSpecialEffectKind.domino => const Duration(milliseconds: 3000),
+      DominoSpecialEffectKind.blocked => const Duration(milliseconds: 2750),
+      DominoSpecialEffectKind.capicua => const Duration(milliseconds: 3050),
+    };
+    setState(() {
+      _specialEffectKind = kind;
+      _specialEffectPlayerName = playerName;
+      _specialEffectSequence += 1;
+    });
+    _specialEffectTimer = Timer(duration, () {
+      if (!mounted) return;
+      setState(() {
+        _specialEffectKind = null;
+        _specialEffectPlayerName = null;
+        if (kind == DominoSpecialEffectKind.blocked) {
+          _blockResultPending = false;
+        }
+      });
+    });
+  }
+
+  void _scheduleFallbackTurn(_OnlineGame game) {
+    if (game.roundOver ||
+        game.matchOver ||
+        !game.isFallbackOnlinePlayer(game.turnId)) {
+      return;
+    }
+    if (_fallbackTurnScheduledRevision == game.revision) return;
+    _fallbackTurnScheduledRevision = game.revision;
+    _fallbackTurnTimer?.cancel();
+    _fallbackTurnTimer = Timer(
+      OnlineGameFactory.fallbackTurnDelayFor(game.id, game.revision),
+      () async {
+        if (!mounted) return;
+        final current = _latestRenderedGame;
+        if (current == null ||
+            current.id != game.id ||
+            current.revision != game.revision ||
+            !current.isFallbackOnlinePlayer(current.turnId)) {
+          return;
+        }
+        final applied = await OnlineGameFactory.processFallbackTurn(
+          db: _db,
+          gameId: game.id,
+          expectedRevision: game.revision,
+        );
+        if (!applied && mounted) {
+          final latest = _latestRenderedGame;
+          if (latest != null &&
+              latest.id == game.id &&
+              latest.revision == game.revision &&
+              latest.isFallbackOnlinePlayer(latest.turnId)) {
+            _fallbackTurnScheduledRevision = -1;
+            _scheduleFallbackTurn(latest);
+          }
+        }
+      },
+    );
+  }
+
+  void _scheduleFallbackReaction(_OnlineGame game) {
+    if (!game.hasFallbackOpponent ||
+        game.revision <= 1 ||
+        _fallbackReactionScheduledRevision == game.revision) {
+      return;
+    }
+    _fallbackReactionScheduledRevision = game.revision;
+    final action = game.lastAction;
+    final actionType = action['type'] as String? ?? '';
+    final stableValue = OnlineGameFactory.stableValueFor(
+      game.id,
+      game.revision,
+    );
+    final messageId = OnlineGameFactory.fallbackReactionFor(
+      actionType: actionType,
+      blocked: action['blocked'] == true,
+      special: action['special'] as String?,
+      chanceRoll: (stableValue % 1000) / 1000,
+      messageVariant: stableValue ~/ 1000,
+    );
+    if (messageId == null) return;
+    final fallbackId = game.fallbackOpponentId;
+    if (fallbackId.isEmpty) return;
+    _fallbackReactionTimer?.cancel();
+    _fallbackReactionTimer = Timer(
+      Duration(milliseconds: 480 + (stableValue % 420)),
+      () async {
+        if (!mounted) return;
+        await OnlineGameFactory.sendFallbackQuickChat(
+          db: _db,
+          gameId: game.id,
+          expectedRevision: game.revision,
+          playerId: fallbackId,
+          messageId: messageId,
+        );
+      },
+    );
+  }
+
+  void _handleQuickChat(_OnlineGame game) {
+    final sequence = (game.quickChat['sequence'] as num?)?.toInt() ?? 0;
+    if (_lastQuickChatSequence < 0) {
+      _lastQuickChatSequence = sequence;
+      return;
+    }
+    if (sequence <= _lastQuickChatSequence) return;
+    _lastQuickChatSequence = sequence;
+    final playerId =
+        (game.quickChat['playerId'] as String? ?? '').toUpperCase();
+    final messageId = game.quickChat['messageId'] as String?;
+    final emoji = game.quickChat['emoji'] as String?;
+    if (playerId.isEmpty || messageId == null || emoji == null) return;
+    final playerName = game.displayNameFor(playerId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _quickChatNoticePlayerName = playerName;
+        _quickChatNoticeMessageId = messageId;
+        _quickChatNoticeEmoji = emoji;
+      });
+      _quickChatNoticeTimer?.cancel();
+      _quickChatNoticeTimer = Timer(const Duration(milliseconds: 3200), () {
+        if (!mounted) return;
+        setState(() {
+          _quickChatNoticePlayerName = null;
+          _quickChatNoticeMessageId = null;
+          _quickChatNoticeEmoji = null;
+        });
+      });
+    });
+  }
+
+  String _quickChatLabel(String messageId) => switch (messageId) {
+    'wellPlayed' => _isSpanish ? 'Bien jugado' : 'Well played',
+    'thanks' => _isSpanish ? 'Gracias' : 'Thanks',
+    'goodLuck' => _isSpanish ? 'Buena suerte' : 'Good luck',
+    'goodGame' => _isSpanish ? 'Buena partida' : 'Good game',
+    'wow' => 'Wow!',
+    'oops' => _isSpanish ? 'Ups' : 'Oops',
+    'laugh' => '😂',
+    'fire' => _isSpanish ? '¡En fuego!' : 'On fire!',
+    _ => messageId,
+  };
+
+  Widget _quickChatBubble() {
+    final playerName = _quickChatNoticePlayerName;
+    final messageId = _quickChatNoticeMessageId;
+    final emoji = _quickChatNoticeEmoji;
+    if (playerName == null || messageId == null || emoji == null) {
+      return const SizedBox.shrink();
+    }
+    return IgnorePointer(
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 310),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          decoration: BoxDecoration(
+            color: const Color(0xF2111C28),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: _gold.withValues(alpha: 0.75)),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black54,
+                blurRadius: 14,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 26)),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  '$playerName: ${_quickChatLabel(messageId)}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _showMessage(String message) {
@@ -531,12 +822,21 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
       KapiCosmeticType.domino,
     );
     final myTurn = game.isMyTurn(myPlayerId);
-    final canPass = myTurn && !game.hasMove(myPlayerId) && !game.roundOver;
+    final canDraw = game.canDraw(myPlayerId);
+    final canPass =
+        myTurn &&
+        !game.hasMove(myPlayerId) &&
+        !game.roundOver &&
+        (!game.mode.usesPool || game.pool.isEmpty);
     _handleGameAudio(game, myPlayerId);
+    _handleSpecialEffects(game);
     _recordOnlineRoundIfNeeded(game, myPlayerId);
     _startMatchCelebrationIfNeeded(game, myPlayerId);
     _scrollOnlineHandToPlayableStart(game, myPlayerId, myHand);
     _scheduleVerificationMove(game, myPlayerId);
+    _handleQuickChat(game);
+    _scheduleFallbackReaction(game);
+    _scheduleFallbackTurn(game);
     final status =
         game.roundOver
             ? game.message
@@ -581,10 +881,19 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                 builder: (context, constraints) {
                   final compact = constraints.maxWidth < 430;
                   final tight = constraints.maxWidth < 370;
-                  final boardTop = tight ? 68.0 : (compact ? 76.0 : 96.0);
-                  final baseHandHeight = tight ? 72.0 : (compact ? 78.0 : 90.0);
+                  final tablet =
+                      constraints.maxWidth >= 600 &&
+                      constraints.maxHeight >= 500;
+                  final boardTop =
+                      tablet ? 128.0 : (tight ? 68.0 : (compact ? 76.0 : 96.0));
+                  // Match the 2 vs 2 hand tray on a large canvas. The former
+                  // 180 px tray made the player's hand visually dominate the
+                  // whole table.
+                  final baseHandHeight =
+                      tablet ? 99.0 : (tight ? 72.0 : (compact ? 78.0 : 90.0));
                   final handHeight = baseHandHeight * _handTileScale;
-                  final statusBottom = handHeight + (tight ? 10 : 16);
+                  final statusBottom =
+                      handHeight + (tablet ? 20 : (tight ? 10 : 16));
                   return Stack(
                     children: [
                       const Positioned.fill(child: KapiCenterpieceOverlay()),
@@ -599,7 +908,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                                 alignment: Alignment.centerLeft,
                                 child: _buildProfileCard(
                                   avatarKey: _profile.avatarKey,
-                                  label: _isSpanish ? 'Tu' : 'You',
+                                  label: game.displayNameFor(myPlayerId),
                                   countryCode: game.countryCodeFor(myPlayerId),
                                   rankingPoints: game.rankingPointsFor(
                                     myPlayerId,
@@ -608,22 +917,28 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                                   targetScore: game.targetScore,
                                   active: myTurn,
                                   compact: compact,
+                                  tablet: tablet,
                                 ),
                               ),
                             ),
-                            _buildRoundBadge(game, compact: compact),
+                            _buildRoundBadge(
+                              game,
+                              compact: compact,
+                              tablet: tablet,
+                            ),
                             Expanded(
                               child: Align(
                                 alignment: Alignment.centerRight,
                                 child: _buildProfileCard(
                                   avatarKey: game.avatarKeyFor(otherId),
-                                  label: _isSpanish ? 'Rival' : 'Opponent',
+                                  label: game.displayNameFor(otherId),
                                   countryCode: game.countryCodeFor(otherId),
                                   rankingPoints: game.rankingPointsFor(otherId),
                                   gameScore: game.scoreFor(otherId),
                                   targetScore: game.targetScore,
                                   active: !myTurn && !game.roundOver,
                                   compact: compact,
+                                  tablet: tablet,
                                 ),
                               ),
                             ),
@@ -631,9 +946,13 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                         ),
                       ),
                       Positioned(
-                        top: tight ? 62 : (compact ? 70 : 88),
+                        top: tablet ? 116 : (tight ? 62 : (compact ? 70 : 88)),
                         right: tight ? 12 : 18,
-                        child: _buildBacks(otherHandCount, compact: compact),
+                        child: _buildBacks(
+                          otherHandCount,
+                          compact: compact,
+                          tablet: tablet,
+                        ),
                       ),
                       Positioned.fill(
                         top: boardTop,
@@ -663,7 +982,9 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                             ),
                           ),
                         ),
-                      if (game.roundOver || game.matchOver)
+                      if ((game.roundOver || game.matchOver) &&
+                          !_blockResultPending &&
+                          _specialEffectKind == null)
                         Positioned.fill(
                           child: DominoResultCelebration(
                             showConfetti: game.matchOver,
@@ -682,6 +1003,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                           child: _buildStatusBar(
                             status,
                             game,
+                            canDraw: canDraw,
                             canPass: canPass,
                           ),
                         ),
@@ -694,9 +1016,31 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                             game,
                             myPlayerId,
                             handHeight,
+                            tablet: tablet,
                           ),
                         ),
                       ],
+                      Positioned(
+                        top:
+                            tablet
+                                ? 164
+                                : (tight ? 102 : (compact ? 112 : 132)),
+                        left: 18,
+                        right: 18,
+                        child: _quickChatBubble(),
+                      ),
+                      if (_specialEffectKind != null)
+                        Positioned.fill(
+                          child: DominoSpecialPlayEffect(
+                            key: ValueKey(
+                              'block-online-special-$_specialEffectSequence',
+                            ),
+                            kind: _specialEffectKind!,
+                            sequence: _specialEffectSequence,
+                            spanish: _isSpanish,
+                            playerName: _specialEffectPlayerName,
+                          ),
+                        ),
                     ],
                   );
                 },
@@ -719,6 +1063,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
         'block-online-${game.id}-${game.roundNumber}-${game.revision}-$myPlayerId';
     if (_recordedOnlineRoundKey == rewardKey) return;
     _recordedOnlineRoundKey = rewardKey;
+    if (!game.rankingEligible) return;
     if (game.winnerId == myPlayerId) {
       unawaited(
         KapiCosmeticsService.instance.claimVictory(rewardKey: rewardKey),
@@ -764,6 +1109,9 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                 data['rematchRequestedBy'] as List<dynamic>? ?? const [],
               ).map((id) => id.toUpperCase()).toSet()
               ..add(myPlayerId);
+        if (fresh.hasFallbackOpponent) {
+          requests.addAll(fresh.players.where(fresh.isFallbackOnlinePlayer));
+        }
         if (fresh.players.every(requests.contains)) {
           transaction.set(ref, {
             ...fresh.startRematch().toMap(),
@@ -780,9 +1128,11 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
         }
       });
       _rematchTimer?.cancel();
-      _rematchTimer = Timer(const Duration(seconds: 15), () {
-        if (mounted) unawaited(_expireRematch(game));
-      });
+      if (!game.hasFallbackOpponent) {
+        _rematchTimer = Timer(const Duration(seconds: 15), () {
+          if (mounted) unawaited(_expireRematch(game));
+        });
+      }
     } finally {
       if (mounted) setState(() => _updatingRematch = false);
     }
@@ -870,75 +1220,121 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
   }
 
   void _showSettingsMenu() {
+    if (_usesStableSettingsDialog) {
+      showDialog<void>(
+        context: context,
+        // A bottom sheet can receive the pointer-up from the iPad toolbar
+        // button and close instantly. Keep the tablet menu modal until the
+        // player presses its explicit close control.
+        barrierDismissible: false,
+        builder:
+            (dialogContext) => Dialog(
+              alignment: Alignment.bottomCenter,
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.fromLTRB(96, 72, 96, 46),
+              child: Material(
+                color: const Color(0xFF101820),
+                elevation: 18,
+                borderRadius: BorderRadius.circular(24),
+                clipBehavior: Clip.antiAlias,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: _settingsMenuContent(dialogContext, showClose: true),
+                ),
+              ),
+            ),
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF101820),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder:
-          (sheetContext) => SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    _isSpanish ? 'Menu del juego' : 'Game menu',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w900,
-                    ),
+      builder: (sheetContext) => _settingsMenuContent(sheetContext),
+    );
+  }
+
+  Widget _settingsMenuContent(
+    BuildContext sheetContext, {
+    bool showClose = false,
+  }) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          showClose ? 26 : 18,
+          showClose ? 24 : 18,
+          showClose ? 26 : 18,
+          showClose ? 28 : 22,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Text(
+                  _isSpanish ? 'Menú del juego' : 'Game menu',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
                   ),
-                  const SizedBox(height: 14),
-                  const GameAudioControls(compact: true),
-                  const SizedBox(height: 14),
-                  FilledButton.icon(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      unawaited(_confirmLeaveRoom());
-                    },
-                    icon: const Icon(Icons.exit_to_app_rounded),
-                    label: Text(_isSpanish ? 'Salir de la sala' : 'Leave room'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE53935),
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      Navigator.pushNamed(context, '/game-settings');
-                    },
-                    icon: const Icon(Icons.sports_esports_rounded),
-                    label: Text(
-                      _isSpanish ? 'Configuracion del juego' : 'Game Settings',
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      Navigator.pushNamed(context, '/note-settings');
-                    },
-                    icon: const Icon(Icons.edit_note_rounded),
-                    label: Text(
-                      _isSpanish ? 'Configuracion de apuntes' : 'Note Settings',
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                    ),
+                ),
+                if (showClose) ...[
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close_rounded),
+                    color: Colors.white70,
+                    tooltip: _isSpanish ? 'Cerrar' : 'Close',
                   ),
                 ],
+              ],
+            ),
+            const SizedBox(height: 14),
+            const GameAudioControls(compact: true),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                unawaited(_confirmLeaveRoom());
+              },
+              icon: const Icon(Icons.exit_to_app_rounded),
+              label: Text(_isSpanish ? 'Salir de la sala' : 'Leave room'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE53935),
+                foregroundColor: Colors.white,
               ),
             ),
-          ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                Navigator.pushNamed(context, '/game-settings');
+              },
+              icon: const Icon(Icons.sports_esports_rounded),
+              label: Text(
+                _isSpanish ? 'Configuración del juego' : 'Game Settings',
+              ),
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                Navigator.pushNamed(context, '/note-settings');
+              },
+              icon: const Icon(Icons.edit_note_rounded),
+              label: Text(
+                _isSpanish ? 'Configuración de apuntes' : 'Note Settings',
+              ),
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -946,6 +1342,10 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     if (_leavingRoom || !mounted) return;
     final leave = await showDialog<bool>(
       context: context,
+      // The iPad toolbar can send its pointer-up straight to a dismissible
+      // dialog barrier. Keep Home's leave confirmation open until the player
+      // explicitly chooses Cancel or Leave.
+      barrierDismissible: false,
       builder:
           (dialogContext) => AlertDialog(
             backgroundColor: const Color(0xFF101820),
@@ -1102,18 +1502,19 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     required int targetScore,
     required bool active,
     bool compact = false,
+    bool tablet = false,
   }) {
     final visual = DominoTierVisual.fromScore(rankingPoints);
     return AnimatedContainer(
       width: double.infinity,
       duration: const Duration(milliseconds: 220),
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 10,
-        vertical: compact ? 7 : 10,
+        horizontal: tablet ? 16 : (compact ? 8 : 10),
+        vertical: tablet ? 14 : (compact ? 7 : 10),
       ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(tablet ? 20 : 16),
         border: Border.all(
           color: active ? _gold : visual.frameColor(),
           width: active ? 1.5 : 1,
@@ -1133,12 +1534,12 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: compact ? 30 : 36,
-            height: compact ? 30 : 36,
+            width: tablet ? 54 : (compact ? 30 : 36),
+            height: tablet ? 54 : (compact ? 30 : 36),
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               color: visual.deep,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(tablet ? 16 : 12),
               border: Border.all(color: visual.frameColor(active: active)),
               boxShadow: visual.shadows(active: active),
             ),
@@ -1148,7 +1549,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
               backgroundColor: visual.deep,
             ),
           ),
-          SizedBox(width: compact ? 6 : 8),
+          SizedBox(width: tablet ? 12 : (compact ? 6 : 8)),
           Expanded(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1161,7 +1562,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
-                    fontSize: compact ? 13 : 14,
+                    fontSize: tablet ? 19 : (compact ? 13 : 14),
                   ),
                 ),
                 Text(
@@ -1170,7 +1571,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: visual.accent,
-                    fontSize: compact ? 9 : 10,
+                    fontSize: tablet ? 13 : (compact ? 9 : 10),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -1178,7 +1579,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                   '$gameScore/$targetScore pts',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.75),
-                    fontSize: compact ? 10 : 11,
+                    fontSize: tablet ? 14 : (compact ? 10 : 11),
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -1190,9 +1591,9 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     );
   }
 
-  Widget _buildBacks(int count, {bool compact = false}) {
+  Widget _buildBacks(int count, {bool compact = false, bool tablet = false}) {
     return Container(
-      padding: EdgeInsets.all(compact ? 4 : 5),
+      padding: EdgeInsets.all(tablet ? 7 : (compact ? 4 : 5)),
       decoration: BoxDecoration(
         color: const Color(0xFF082D27).withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(9),
@@ -1209,9 +1610,11 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
         children: [
           for (var index = 0; index < min(count, 7); index++)
             Container(
-              width: compact ? 14 : 17,
-              height: compact ? 30 : 36,
-              margin: EdgeInsets.only(left: index == 0 ? 0 : (compact ? 2 : 3)),
+              width: tablet ? 24 : (compact ? 14 : 17),
+              height: tablet ? 48 : (compact ? 30 : 36),
+              margin: EdgeInsets.only(
+                left: index == 0 ? 0 : (tablet ? 4 : (compact ? 2 : 3)),
+              ),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   begin: Alignment.topLeft,
@@ -1234,16 +1637,20 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     );
   }
 
-  Widget _buildRoundBadge(_OnlineGame game, {required bool compact}) {
+  Widget _buildRoundBadge(
+    _OnlineGame game, {
+    required bool compact,
+    bool tablet = false,
+  }) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4),
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 7 : 10,
-        vertical: compact ? 5 : 7,
+        horizontal: tablet ? 14 : (compact ? 7 : 10),
+        vertical: tablet ? 10 : (compact ? 5 : 7),
       ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.40),
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(tablet ? 17 : 13),
         border: Border.all(color: _gold.withValues(alpha: 0.45)),
       ),
       child: Column(
@@ -1252,7 +1659,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
             '${_isSpanish ? 'Ronda' : 'Round'} ${game.roundNumber}',
             style: TextStyle(
               color: Colors.white,
-              fontSize: compact ? 10 : 11,
+              fontSize: tablet ? 15 : (compact ? 10 : 11),
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -1260,7 +1667,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
             '${_isSpanish ? 'Meta' : 'Goal'} ${game.targetScore}',
             style: TextStyle(
               color: _gold,
-              fontSize: compact ? 9 : 10,
+              fontSize: tablet ? 13 : (compact ? 9 : 10),
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -1276,7 +1683,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
   }) {
     final winnerId = game.winnerId;
     final loserId = game.otherPlayerId(winnerId);
-    final winner = game.initialsFor(winnerId);
+    final winner = game.displayNameFor(winnerId);
     final requestedRematch = game.rematchRequestedBy.contains(myPlayerId);
     final opponentRequested = game.rematchRequestedBy.contains(otherPlayerId);
     return TweenAnimationBuilder<double>(
@@ -1309,7 +1716,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
             const SizedBox(height: 5),
             _buildRemainingTiles(
               label:
-                  '${game.initialsFor(winnerId)} ${_isSpanish ? 'fichas restantes' : 'remaining tiles'}',
+                  '${game.displayNameFor(winnerId)} ${_isSpanish ? 'fichas restantes' : 'remaining tiles'}',
               tiles: game.handFor(winnerId),
               accent: _gold,
             ),
@@ -1320,16 +1727,20 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
                 color: Colors.black.withValues(alpha: 0.82),
                 borderRadius: BorderRadius.circular(30),
               ),
-              child: Text(
-                '${game.initialsFor(myPlayerId)} ${game.scoreFor(myPlayerId)}/${game.targetScore}'
-                '  •  '
-                '${game.initialsFor(otherPlayerId)} ${game.scoreFor(otherPlayerId)}/${game.targetScore}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  letterSpacing: 0.7,
-                  fontWeight: FontWeight.w900,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '${game.displayNameFor(myPlayerId)} ${game.scoreFor(myPlayerId)}/${game.targetScore}'
+                  '  •  '
+                  '${game.displayNameFor(otherPlayerId)} ${game.scoreFor(otherPlayerId)}/${game.targetScore}',
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    letterSpacing: 0.7,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
             ),
@@ -1338,7 +1749,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
             const SizedBox(height: 5),
             _buildRemainingTiles(
               label:
-                  '${game.initialsFor(loserId)} ${_isSpanish ? 'fichas restantes' : 'remaining tiles'}',
+                  '${game.displayNameFor(loserId)} ${_isSpanish ? 'fichas restantes' : 'remaining tiles'}',
               tiles: game.handFor(loserId),
               accent: const Color(0xFF64B5F6),
               alignEnd: true,
@@ -1468,7 +1879,9 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
           winner ? CrossAxisAlignment.start : CrossAxisAlignment.end,
       children: [
         Text(
-          game.initialsFor(playerId),
+          game.displayNameFor(playerId),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: Colors.white,
             fontSize: 22,
@@ -1670,6 +2083,7 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
   Widget _buildStatusBar(
     String status,
     _OnlineGame game, {
+    required bool canDraw,
     required bool canPass,
   }) {
     return Container(
@@ -1690,6 +2104,14 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
               ),
             ),
           ),
+          if (canDraw)
+            DrawPoolActionButton(
+              key: const ValueKey('online-draw-pool-button'),
+              remaining: game.pool.length,
+              isSpanish: _isSpanish,
+              compact: true,
+              onPressed: () => _draw(game),
+            ),
           if (canPass)
             FilledButton.icon(
               onPressed: () => _pass(game),
@@ -1719,12 +2141,16 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
     List<_DominoTile> hand,
     _OnlineGame game,
     String myPlayerId,
-    double height,
-  ) {
+    double height, {
+    required bool tablet,
+  }) {
     final dominoStyle = KapiCosmeticsService.instance.equipped(
       KapiCosmeticType.domino,
     );
-    final dominoShort = ((height - 12) / 1.82).clamp(30.0, 43.0);
+    final dominoShort = ((height - 16) / 1.82).clamp(
+      30.0,
+      tablet ? 86.0 : 43.0,
+    );
     final displayHand = _orderedHandForDisplay(hand, game, myPlayerId);
     return SizedBox(
       height: height,
@@ -1732,12 +2158,15 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
         key: const ValueKey('block-online-adaptive-hand-tray'),
         dominoColor: dominoStyle.primary,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          padding: EdgeInsets.symmetric(
+            horizontal: tablet ? 10 : 4,
+            vertical: tablet ? 10 : 6,
+          ),
           child: ListView.separated(
             controller: _onlineHandScrollController,
             scrollDirection: Axis.horizontal,
             itemCount: displayHand.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 5),
+            separatorBuilder: (_, __) => SizedBox(width: tablet ? 10 : 5),
             itemBuilder: (context, index) {
               final tile = displayHand[index];
               final playable =
@@ -1805,21 +2234,111 @@ class _DominoOnlineGameScreenState extends State<DominoOnlineGameScreen>
   }
 }
 
+String _safeOnlineDisplayName(Object? value, {required String fallback}) {
+  if (value is String) {
+    final normalized = DominoPlayerProfile.normalizeDisplayName(value);
+    if (DominoPlayerProfile.isValidDisplayName(normalized)) {
+      return normalized;
+    }
+  }
+  final normalizedFallback = DominoPlayerProfile.normalizeDisplayName(fallback);
+  if (DominoPlayerProfile.isValidDisplayName(normalizedFallback)) {
+    return normalizedFallback;
+  }
+  return 'Player';
+}
+
 class OnlineGameFactory {
+  static const Map<String, String> quickChatEmojis = {
+    'wellPlayed': '👏',
+    'thanks': '🙏',
+    'goodLuck': '🍀',
+    'goodGame': '🤝',
+    'wow': '😮',
+    'oops': '😅',
+    'laugh': '😂',
+    'fire': '🔥',
+  };
+
+  @visibleForTesting
+  static int stableValueFor(String gameId, int revision) {
+    var value = revision & 0x7FFFFFFF;
+    for (final codeUnit in gameId.codeUnits) {
+      value = ((value * 31) + codeUnit) & 0x7FFFFFFF;
+    }
+    return value;
+  }
+
+  @visibleForTesting
+  static Duration fallbackTurnDelayFor(String gameId, int revision) =>
+      Duration(milliseconds: 1200 + (stableValueFor(gameId, revision) % 1400));
+
+  @visibleForTesting
+  static String? fallbackReactionFor({
+    required String actionType,
+    required bool blocked,
+    required String? special,
+    required double chanceRoll,
+    required int messageVariant,
+  }) {
+    List<String> messages;
+    double chance;
+    if (actionType == 'pass') {
+      chance = 0.32;
+      messages = const ['oops', 'laugh', 'goodLuck', 'wellPlayed'];
+    } else if (actionType == 'roundEnd' && blocked) {
+      chance = 0.68;
+      messages = const ['wow', 'goodGame', 'fire'];
+    } else if (actionType == 'roundEnd' && special == 'capicua') {
+      chance = 0.72;
+      messages = const ['wow', 'fire', 'wellPlayed'];
+    } else if (actionType == 'roundEnd') {
+      chance = 0.56;
+      messages = const ['goodGame', 'wellPlayed', 'fire'];
+    } else {
+      return null;
+    }
+    if (chanceRoll < 0 || chanceRoll >= chance) return null;
+    return messages[messageVariant.abs() % messages.length];
+  }
+
   static Future<String> createClassicGame({
     required FirebaseFirestore db,
     required DominoPlayerProfile host,
     required String guestId,
     required String guestInitials,
+    DominoMatchMode mode = DominoMatchMode.block,
+    String? guestDisplayName,
+    int? targetScore,
+    String? expectedHostSearchToken,
+    String? expectedGuestSearchToken,
+    String? expectedPairingId,
   }) async {
     final hostId = host.publicId.toUpperCase();
     final cleanGuestId = guestId.toUpperCase();
-    final hostProfileDoc =
-        await db.collection('kapi_lobby_profiles').doc(hostId).get();
-    final guestProfileDoc =
-        await db.collection('kapi_lobby_profiles').doc(cleanGuestId).get();
+    final profileDocs = await Future.wait([
+      db.collection('kapi_lobby_profiles').doc(hostId).get(),
+      db.collection('kapi_lobby_profiles').doc(cleanGuestId).get(),
+    ]);
+    final hostProfileDoc = profileDocs[0];
+    final guestProfileDoc = profileDocs[1];
     final hostProfile = hostProfileDoc.data() ?? <String, dynamic>{};
     final guestProfile = guestProfileDoc.data() ?? <String, dynamic>{};
+    final hostDisplayName = _safeOnlineDisplayName(
+      host.effectiveDisplayName,
+      fallback: host.initials,
+    );
+    final storedGuestDisplayName = _safeOnlineDisplayName(
+      guestProfile['displayName'],
+      fallback: guestInitials,
+    );
+    final resolvedGuestDisplayName =
+        guestDisplayName == null
+            ? storedGuestDisplayName
+            : _safeOnlineDisplayName(
+              guestDisplayName,
+              fallback: storedGuestDisplayName,
+            );
     final deck = <_DominoTile>[
       for (var left = 0; left <= 6; left++)
         for (var right = left; right <= 6; right++) _DominoTile(left, right),
@@ -1829,6 +2348,10 @@ class OnlineGameFactory {
       hostId: deck.take(7).toList(),
       cleanGuestId: deck.skip(7).take(7).toList(),
     };
+    final pool =
+        mode.usesPool
+            ? List<_DominoTile>.from(deck.skip(14))
+            : const <_DominoTile>[];
     final starter = _selectStarter(hands);
     hands[starter.playerId]!.remove(starter.tile);
     final otherPlayer = starter.playerId == hostId ? cleanGuestId : hostId;
@@ -1836,23 +2359,32 @@ class OnlineGameFactory {
     final ref = db.collection('kapi_online_games').doc();
     final gameData = <String, dynamic>{
       'id': ref.id,
-      'mode': 'block',
+      'mode': mode.storageValue,
+      'schemaVersion': mode.usesPool ? 2 : 1,
       'status': 'active',
       'players': [hostId, cleanGuestId],
       'profiles': {
         hostId: {
           'initials': host.initials,
+          'displayName': hostDisplayName,
           'countryCode': host.countryCode,
           'code': host.code,
           'avatarKey': host.avatarKey,
           'totalPoints': (hostProfile['totalPoints'] as num?)?.toInt() ?? 0,
+          'isCpu': false,
+          'isFallbackOnlinePlayer': false,
+          'rankingEligible': true,
         },
         cleanGuestId: {
           'initials': guestProfile['initials'] as String? ?? guestInitials,
+          'displayName': resolvedGuestDisplayName,
           'countryCode': guestProfile['countryCode'] as String? ?? '',
           'code': guestProfile['code'] as String? ?? '',
           'avatarKey': guestProfile['avatarKey'] as String? ?? '',
           'totalPoints': (guestProfile['totalPoints'] as num?)?.toInt() ?? 0,
+          'isCpu': false,
+          'isFallbackOnlinePlayer': false,
+          'rankingEligible': true,
         },
       },
       'hands': {
@@ -1860,6 +2392,7 @@ class OnlineGameFactory {
         cleanGuestId:
             hands[cleanGuestId]!.map((tile) => tile.toText()).toList(),
       },
+      'pool': pool.map((tile) => tile.toText()).toList(),
       'board': [
         {
           'left': starter.tile.left,
@@ -1871,25 +2404,77 @@ class OnlineGameFactory {
       'passed': <String>[],
       'scores': {hostId: 0, cleanGuestId: 0},
       'roundNumber': 1,
-      'targetScore': DominoGameConfig.targetScore,
+      'targetScore': targetScore ?? DominoGameConfig.targetScore,
       'winnerId': '',
       'roundPoints': 0,
       'matchOver': false,
+      'rankingEligible': true,
       'revision': 1,
       'lastPlayedTile': starter.tile.toText(),
-      'message': '${starter.playerId} opened with ${starter.tile.label}',
+      'lastAction': {
+        'type': 'play',
+        'player': starter.playerId,
+        'opening': true,
+      },
+      'quickChat': const <String, dynamic>{'sequence': 0},
+      'message':
+          '${starter.playerId == hostId ? hostDisplayName : resolvedGuestDisplayName} opened with ${starter.tile.label}',
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
     await db.runTransaction((transaction) async {
       final playerIds = [hostId, cleanGuestId];
+      final queueRefs = [
+        for (final id in playerIds)
+          db.collection('kapi_block_matchmaking').doc(id),
+      ];
       final sessionRefs = [
         for (final id in playerIds)
           db.collection(BlockRoomService.sessionsCollection).doc(id),
       ];
+      final validateReservation =
+          expectedHostSearchToken != null ||
+          expectedGuestSearchToken != null ||
+          expectedPairingId != null;
+      if (validateReservation &&
+          (expectedHostSearchToken == null ||
+              expectedGuestSearchToken == null ||
+              expectedPairingId == null)) {
+        throw ArgumentError(
+          'Both search tokens and the pairing id are required together.',
+        );
+      }
+      final queueSnapshots = <DocumentSnapshot<Map<String, dynamic>>>[];
+      if (validateReservation) {
+        for (final queueRef in queueRefs) {
+          queueSnapshots.add(await transaction.get(queueRef));
+        }
+      }
       final sessions = <DocumentSnapshot<Map<String, dynamic>>>[];
       for (final sessionRef in sessionRefs) {
         sessions.add(await transaction.get(sessionRef));
+      }
+      if (validateReservation) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final hostReserved = _matchesMatchmakingReservation(
+          queueSnapshots[0].data(),
+          expectedSearchToken: expectedHostSearchToken!,
+          expectedPairingId: expectedPairingId!,
+          expectedOpponentId: cleanGuestId,
+          expectedMode: mode,
+          nowMillis: now,
+        );
+        final guestReserved = _matchesMatchmakingReservation(
+          queueSnapshots[1].data(),
+          expectedSearchToken: expectedGuestSearchToken!,
+          expectedPairingId: expectedPairingId,
+          expectedOpponentId: hostId,
+          expectedMode: mode,
+          nowMillis: now,
+        );
+        if (!hostReserved || !guestReserved) {
+          throw StateError('The matchmaking reservation expired.');
+        }
       }
       for (var index = 0; index < sessions.length; index++) {
         if (BlockRoomService.isBusy(sessions[index].data())) {
@@ -1898,7 +2483,9 @@ class OnlineGameFactory {
       }
 
       transaction.set(ref, gameData);
-      for (final id in playerIds) {
+      for (var index = 0; index < playerIds.length; index++) {
+        final id = playerIds[index];
+        final opponentId = playerIds[index == 0 ? 1 : 0];
         transaction.set(
           db.collection(BlockRoomService.sessionsCollection).doc(id),
           {
@@ -1911,16 +2498,419 @@ class OnlineGameFactory {
         transaction.set(db.collection('kapi_block_matchmaking').doc(id), {
           'status': 'inGame',
           'gameId': ref.id,
+          'opponentId': opponentId,
+          'mode': mode.storageValue,
+          'pairingId': FieldValue.delete(),
+          'pairingExpiresAt': FieldValue.delete(),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
         transaction.set(db.collection('kapi_lobby_profiles').doc(id), {
           'availability': 'inGame',
           'activeGameId': ref.id,
+          'displayName':
+              id == hostId ? hostDisplayName : resolvedGuestDisplayName,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
     });
     return ref.id;
+  }
+
+  static Future<String> createFallbackClassicGame({
+    required FirebaseFirestore db,
+    required DominoPlayerProfile host,
+    required DominoPlayerProfile opponent,
+    required int opponentPoints,
+    required String expectedHostSearchToken,
+    required String expectedPairingId,
+    DominoMatchMode mode = DominoMatchMode.block,
+  }) async {
+    final hostId = host.publicId.toUpperCase();
+    final hostProfileDoc =
+        await db.collection('kapi_lobby_profiles').doc(hostId).get();
+    final hostProfile = hostProfileDoc.data() ?? <String, dynamic>{};
+    final hostDisplayName = _safeOnlineDisplayName(
+      host.effectiveDisplayName,
+      fallback: host.initials,
+    );
+    final opponentDisplayName = _safeOnlineDisplayName(
+      opponent.effectiveDisplayName,
+      fallback: opponent.initials,
+    );
+    final ref = db.collection('kapi_online_games').doc();
+    final fallbackId = fallbackPlayerIdFor(opponent);
+    final deck = <_DominoTile>[
+      for (var left = 0; left <= 6; left++)
+        for (var right = left; right <= 6; right++) _DominoTile(left, right),
+    ]..shuffle(Random());
+    _OnlineGame.debugVerifyDeck(deck);
+    final hands = {
+      hostId: deck.take(7).toList(),
+      fallbackId: deck.skip(7).take(7).toList(),
+    };
+    final pool =
+        mode.usesPool
+            ? List<_DominoTile>.from(deck.skip(14))
+            : const <_DominoTile>[];
+    final starter = _selectStarter(hands);
+    hands[starter.playerId]!.remove(starter.tile);
+    final otherPlayer = starter.playerId == hostId ? fallbackId : hostId;
+    final gameData = <String, dynamic>{
+      'id': ref.id,
+      'mode': mode.storageValue,
+      'schemaVersion': mode.usesPool ? 2 : 1,
+      'status': 'active',
+      'players': [hostId, fallbackId],
+      'profiles': {
+        hostId: {
+          'initials': host.initials,
+          'displayName': hostDisplayName,
+          'countryCode': host.countryCode,
+          'code': host.code,
+          'avatarKey': host.avatarKey,
+          'totalPoints': (hostProfile['totalPoints'] as num?)?.toInt() ?? 0,
+          'isCpu': false,
+          'isFallbackOnlinePlayer': false,
+          'rankingEligible': false,
+        },
+        fallbackId: fallbackProfileDataForTesting(
+          opponent: opponent,
+          opponentPoints: opponentPoints,
+        ),
+      },
+      'hands': {
+        hostId: hands[hostId]!.map((tile) => tile.toText()).toList(),
+        fallbackId: hands[fallbackId]!.map((tile) => tile.toText()).toList(),
+      },
+      'pool': pool.map((tile) => tile.toText()).toList(),
+      'board': [
+        {
+          'left': starter.tile.left,
+          'right': starter.tile.right,
+          'isFirst': true,
+        },
+      ],
+      'turnId': otherPlayer,
+      'passed': <String>[],
+      'scores': {hostId: 0, fallbackId: 0},
+      'roundNumber': 1,
+      'targetScore': DominoGameConfig.targetScore,
+      'winnerId': '',
+      'roundPoints': 0,
+      'matchOver': false,
+      'rankingEligible': false,
+      'revision': 1,
+      'lastPlayedTile': starter.tile.toText(),
+      'lastAction': {
+        'type': 'play',
+        'player': starter.playerId,
+        'opening': true,
+      },
+      'quickChat': const <String, dynamic>{'sequence': 0},
+      'message':
+          '${starter.playerId == hostId ? hostDisplayName : opponentDisplayName} opened with ${starter.tile.label}',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    await db.runTransaction((transaction) async {
+      final sessionRef = db
+          .collection(BlockRoomService.sessionsCollection)
+          .doc(hostId);
+      final queueRef = db.collection('kapi_block_matchmaking').doc(hostId);
+      final queueSnapshot = await transaction.get(queueRef);
+      final session = await transaction.get(sessionRef);
+      if (!_matchesMatchmakingReservation(
+        queueSnapshot.data(),
+        expectedSearchToken: expectedHostSearchToken,
+        expectedPairingId: expectedPairingId,
+        expectedOpponentId: fallbackId,
+        expectedMode: mode,
+        nowMillis: DateTime.now().millisecondsSinceEpoch,
+      )) {
+        throw StateError('The fallback matchmaking reservation expired.');
+      }
+      if (BlockRoomService.isBusy(session.data())) {
+        throw StateError('$hostId is already in another room.');
+      }
+
+      transaction.set(ref, gameData);
+      transaction.set(sessionRef, {
+        'state': 'inGame',
+        'activeGameId': ref.id,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      transaction.set(queueRef, {
+        'status': 'inGame',
+        'gameId': ref.id,
+        'opponentId': fallbackId,
+        'mode': mode.storageValue,
+        'pairingId': FieldValue.delete(),
+        'pairingExpiresAt': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      transaction.set(db.collection('kapi_lobby_profiles').doc(hostId), {
+        'availability': 'inGame',
+        'activeGameId': ref.id,
+        'displayName': hostDisplayName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+    return ref.id;
+  }
+
+  static String debugSafeDisplayName(Object? value, {String fallback = 'P2'}) =>
+      _safeOnlineDisplayName(value, fallback: fallback);
+
+  static bool _matchesMatchmakingReservation(
+    Map<String, dynamic>? data, {
+    required String expectedSearchToken,
+    required String expectedPairingId,
+    required String expectedOpponentId,
+    DominoMatchMode expectedMode = DominoMatchMode.block,
+    required int nowMillis,
+  }) {
+    final expiresAt = (data?['pairingExpiresAt'] as num?)?.toInt() ?? 0;
+    return data?['status'] == 'pairing' &&
+        data?['searchToken'] == expectedSearchToken &&
+        data?['pairingId'] == expectedPairingId &&
+        DominoMatchMode.fromValue(data?['mode']) == expectedMode &&
+        (data?['opponentId'] as String? ?? '').toUpperCase() ==
+            expectedOpponentId.toUpperCase() &&
+        expiresAt > nowMillis;
+  }
+
+  @visibleForTesting
+  static bool matchmakingReservationValidForTesting(
+    Map<String, dynamic>? data, {
+    required String expectedSearchToken,
+    required String expectedPairingId,
+    required String expectedOpponentId,
+    DominoMatchMode expectedMode = DominoMatchMode.block,
+    required int nowMillis,
+  }) => _matchesMatchmakingReservation(
+    data,
+    expectedSearchToken: expectedSearchToken,
+    expectedPairingId: expectedPairingId,
+    expectedOpponentId: expectedOpponentId,
+    expectedMode: expectedMode,
+    nowMillis: nowMillis,
+  );
+
+  @visibleForTesting
+  static Map<String, dynamic> fallbackProfileDataForTesting({
+    required DominoPlayerProfile opponent,
+    required int opponentPoints,
+  }) => {
+    'initials': opponent.initials,
+    'displayName': _safeOnlineDisplayName(
+      opponent.effectiveDisplayName,
+      fallback: opponent.initials,
+    ),
+    'countryCode': opponent.countryCode.toUpperCase(),
+    'code': opponent.code,
+    'avatarKey': opponent.avatarKey,
+    'totalPoints': opponentPoints,
+    'badgeKey': 'flag_${opponent.countryCode.toLowerCase()}',
+    'isCpu': true,
+    'isFallbackOnlinePlayer': true,
+    'rankingEligible': false,
+  };
+
+  @visibleForTesting
+  static String fallbackPlayerIdFor(DominoPlayerProfile opponent) =>
+      opponent.publicId.toUpperCase();
+
+  static Future<bool> processFallbackTurn({
+    required FirebaseFirestore db,
+    required String gameId,
+    required int expectedRevision,
+  }) async {
+    final ref = db.collection('kapi_online_games').doc(gameId);
+    try {
+      return await db.runTransaction<bool>((transaction) async {
+        final snapshot = await transaction.get(ref);
+        if (!snapshot.exists) return false;
+        final game = _OnlineGame.fromSnapshot(snapshot);
+        if (game.revision != expectedRevision ||
+            game.roundOver ||
+            game.matchOver ||
+            !game.isFallbackOnlinePlayer(game.turnId)) {
+          return false;
+        }
+        final next = _advanceFallbackTurn(game);
+        if (next == null) return false;
+        transaction.set(ref, next.toMap(), SetOptions(merge: true));
+        return true;
+      });
+    } on FirebaseException {
+      return false;
+    }
+  }
+
+  static _OnlineGame? _advanceFallbackTurn(_OnlineGame game) {
+    final playerId = game.turnId;
+    if (game.roundOver ||
+        game.matchOver ||
+        !game.isFallbackOnlinePlayer(playerId)) {
+      return null;
+    }
+    final playable =
+        <({_DominoTile tile, List<_BoardSide> sides, int value})>[];
+    for (final tile in game.handFor(playerId)) {
+      final sides = game.validSides(tile);
+      if (sides.isEmpty) continue;
+      playable.add((
+        tile: tile,
+        sides: sides,
+        value: (tile.points * 4) + (tile.isDouble ? 3 : 0) + sides.length,
+      ));
+    }
+    if (playable.isEmpty) {
+      return game.canDraw(playerId)
+          ? game.drawTile(playerId)
+          : game.pass(playerId);
+    }
+    playable.sort((first, second) {
+      final valueOrder = second.value.compareTo(first.value);
+      if (valueOrder != 0) return valueOrder;
+      return second.tile.key.compareTo(first.tile.key);
+    });
+    final stable = stableValueFor(game.id, game.revision);
+    final choiceIndex = stable % 7 == 0 && playable.length > 1 ? 1 : 0;
+    final choice = playable[choiceIndex];
+    final side =
+        choice.sides.length > 1
+            ? choice.sides[stable.isEven ? 0 : 1]
+            : choice.sides.first;
+    return game.playTile(playerId: playerId, tile: choice.tile, side: side);
+  }
+
+  static Future<bool> sendFallbackQuickChat({
+    required FirebaseFirestore db,
+    required String gameId,
+    required int expectedRevision,
+    required String playerId,
+    required String messageId,
+  }) async {
+    final emoji = quickChatEmojis[messageId];
+    if (emoji == null) return false;
+    final cleanPlayerId = playerId.toUpperCase();
+    final ref = db.collection('kapi_online_games').doc(gameId);
+    try {
+      return await db.runTransaction<bool>((transaction) async {
+        final snapshot = await transaction.get(ref);
+        if (!snapshot.exists) return false;
+        final data = snapshot.data() ?? const <String, dynamic>{};
+        final game = _OnlineGame.fromSnapshot(snapshot);
+        if (game.revision != expectedRevision ||
+            data['status'] == 'abandoned' ||
+            !game.isFallbackOnlinePlayer(cleanPlayerId) ||
+            !fallbackReactionAvailableForTesting(
+              data,
+              expectedRevision: expectedRevision,
+            )) {
+          return false;
+        }
+        transaction.update(
+          ref,
+          quickChatUpdateForTesting(
+            previous: game.quickChat,
+            playerId: cleanPlayerId,
+            messageId: messageId,
+            sentAtMillis: DateTime.now().millisecondsSinceEpoch,
+            sourceRevision: expectedRevision,
+          ),
+        );
+        return true;
+      });
+    } on FirebaseException {
+      return false;
+    }
+  }
+
+  @visibleForTesting
+  static Map<String, dynamic> quickChatUpdateForTesting({
+    required Map<String, dynamic> previous,
+    required String playerId,
+    required String messageId,
+    required int sentAtMillis,
+    int? sourceRevision,
+  }) {
+    final emoji = quickChatEmojis[messageId];
+    if (emoji == null) return const <String, dynamic>{};
+    final sequence = (previous['sequence'] as num?)?.toInt() ?? 0;
+    return {
+      'quickChat': {
+        'sequence': sequence + 1,
+        'playerId': playerId.toUpperCase(),
+        'messageId': messageId,
+        'emoji': emoji,
+        'sentAtMillis': sentAtMillis,
+      },
+      if (sourceRevision != null) 'fallbackReactionRevision': sourceRevision,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
+  @visibleForTesting
+  static bool fallbackReactionAvailableForTesting(
+    Map<String, dynamic> gameData, {
+    required int expectedRevision,
+  }) {
+    final consumed =
+        (gameData['fallbackReactionRevision'] as num?)?.toInt() ?? -1;
+    return consumed != expectedRevision;
+  }
+
+  @visibleForTesting
+  static bool debugValidateFallbackTurnProcessing() {
+    const humanId = 'AA.PR.HUMAN1';
+    const fallbackId = 'FALLBACK-TEST';
+    final game = _OnlineGame(
+      id: 'fallback-turn-test',
+      players: const [humanId, fallbackId],
+      hands: const {
+        humanId: [_DominoTile(0, 0), _DominoTile(1, 1)],
+        fallbackId: [_DominoTile(6, 5), _DominoTile(2, 3)],
+      },
+      profiles: const {
+        humanId: {
+          'initials': 'AA',
+          'displayName': 'Ana',
+          'isCpu': false,
+          'isFallbackOnlinePlayer': false,
+        },
+        fallbackId: {
+          'initials': 'DI',
+          'displayName': 'Diego',
+          'isCpu': true,
+          'isFallbackOnlinePlayer': true,
+        },
+      },
+      board: const [_BoardDomino(_DominoTile(6, 6), isFirst: true)],
+      turnId: fallbackId,
+      passed: const <String>{},
+      roundOver: false,
+      message: '',
+      scores: const {humanId: 0, fallbackId: 0},
+      roundNumber: 1,
+      targetScore: 100,
+      winnerId: '',
+      roundPoints: 0,
+      matchOver: false,
+      lastPlayedTile: const _DominoTile(6, 6),
+      rematchRequestedBy: const <String>{},
+      revision: 4,
+      rankingEligible: false,
+    );
+    final next = _advanceFallbackTurn(game);
+    return next != null &&
+        next.revision == 5 &&
+        next.turnId == humanId &&
+        next.handFor(fallbackId).length == 1 &&
+        next.board.length == 2 &&
+        !next.rankingEligible;
   }
 
   static _Starter _selectStarter(Map<String, List<_DominoTile>> hands) {
@@ -2111,6 +3101,96 @@ class OnlineGameFactory {
         !rematch.matchOver;
   }
 
+  @visibleForTesting
+  static bool debugValidateDrawPoolRules() {
+    const playerA = 'AA.US.AAAAAA';
+    const playerB = 'BB.US.BBBBBB';
+    final game = _OnlineGame(
+      id: 'draw-pool-debug',
+      players: const [playerA, playerB],
+      hands: const {
+        playerA: [_DominoTile(0, 0)],
+        playerB: [_DominoTile(4, 4)],
+      },
+      profiles: const {
+        playerA: {'initials': 'AA'},
+        playerB: {'initials': 'BB'},
+      },
+      board: const [_BoardDomino(_DominoTile(6, 6), isFirst: true)],
+      turnId: playerA,
+      passed: const <String>{},
+      roundOver: false,
+      message: '',
+      scores: const {playerA: 0, playerB: 0},
+      roundNumber: 1,
+      targetScore: DominoGameConfig.targetScore,
+      winnerId: '',
+      roundPoints: 0,
+      matchOver: false,
+      lastPlayedTile: const _DominoTile(6, 6),
+      rematchRequestedBy: const <String>{},
+      revision: 1,
+      mode: DominoMatchMode.drawPool,
+      pool: const [_DominoTile(1, 2), _DominoTile(3, 6)],
+      schemaVersion: 2,
+    );
+    if (!game.canDraw(playerA) || game.canDraw(playerB)) return false;
+
+    final firstDraw = game.drawTile(playerA);
+    if (firstDraw.turnId != playerA ||
+        firstDraw.revision != 2 ||
+        firstDraw.pool.length != 1 ||
+        firstDraw.handFor(playerA).length != 2 ||
+        firstDraw.lastAction['type'] != 'draw' ||
+        !firstDraw.canDraw(playerA)) {
+      return false;
+    }
+    try {
+      firstDraw.pass(playerA);
+      return false;
+    } on StateError {
+      // Expected: Draw/Pool cannot pass while tiles remain in the pool.
+    }
+
+    final secondDraw = firstDraw.drawTile(playerA);
+    if (secondDraw.turnId != playerA ||
+        secondDraw.revision != 3 ||
+        secondDraw.pool.isNotEmpty ||
+        !secondDraw.hasMove(playerA) ||
+        secondDraw.canDraw(playerA)) {
+      return false;
+    }
+
+    final nextRound =
+        secondDraw
+            .copyWith(roundOver: true, winnerId: playerA)
+            .startNextRound();
+    final nextRoundTiles = <_DominoTile>[
+      ...nextRound.hands.values.expand((hand) => hand),
+      ...nextRound.pool,
+      ...nextRound.board.map((domino) => domino.tile),
+    ];
+    if (nextRound.mode != DominoMatchMode.drawPool ||
+        nextRound.schemaVersion != 2 ||
+        nextRound.pool.length != 14 ||
+        nextRoundTiles.length != 28 ||
+        nextRoundTiles.map((tile) => tile.key).toSet().length != 28) {
+      return false;
+    }
+
+    final rematch = secondDraw.copyWith(matchOver: true).startRematch();
+    final rematchTiles = <_DominoTile>[
+      ...rematch.hands.values.expand((hand) => hand),
+      ...rematch.pool,
+      ...rematch.board.map((domino) => domino.tile),
+    ];
+    return rematch.mode == DominoMatchMode.drawPool &&
+        rematch.schemaVersion == 2 &&
+        rematch.pool.length == 14 &&
+        rematchTiles.length == 28 &&
+        rematchTiles.map((tile) => tile.key).toSet().length == 28;
+  }
+
   static bool debugValidateBoardGeometry() {
     final board = <_BoardDomino>[
       const _BoardDomino(_DominoTile(1, 2), isFirst: false),
@@ -2256,6 +3336,12 @@ class _OnlineGame {
     required this.lastPlayedTile,
     required this.rematchRequestedBy,
     required this.revision,
+    this.lastAction = const <String, dynamic>{},
+    this.quickChat = const <String, dynamic>{},
+    this.rankingEligible = true,
+    this.mode = DominoMatchMode.block,
+    this.pool = const <_DominoTile>[],
+    this.schemaVersion = 1,
   });
 
   final String id;
@@ -2276,9 +3362,18 @@ class _OnlineGame {
   final _DominoTile? lastPlayedTile;
   final Set<String> rematchRequestedBy;
   final int revision;
+  final Map<String, dynamic> lastAction;
+  final Map<String, dynamic> quickChat;
+  final bool rankingEligible;
+  final DominoMatchMode mode;
+  final List<_DominoTile> pool;
+  final int schemaVersion;
 
   int? get leftOpen => board.isEmpty ? null : board.first.tile.left;
   int? get rightOpen => board.isEmpty ? null : board.last.tile.right;
+  bool get hasFallbackOpponent => players.any(isFallbackOnlinePlayer);
+  String get fallbackOpponentId =>
+      players.firstWhere(isFallbackOnlinePlayer, orElse: () => '');
 
   static _OnlineGame fromSnapshot(
     DocumentSnapshot<Map<String, dynamic>> snapshot,
@@ -2291,6 +3386,8 @@ class _OnlineGame {
     final rawHands = Map<String, dynamic>.from(data['hands'] ?? {});
     final rawProfiles = Map<String, dynamic>.from(data['profiles'] ?? {});
     final rawScores = Map<String, dynamic>.from(data['scores'] ?? {});
+    final mode = DominoMatchMode.fromValue(data['mode']);
+    final storedSchemaVersion = (data['schemaVersion'] as num?)?.toInt() ?? 1;
     return _OnlineGame(
       id: snapshot.id,
       players: players,
@@ -2301,6 +3398,13 @@ class _OnlineGame {
                 entry.value ?? [],
               ).map(_DominoTile.fromText).toList(),
       },
+      mode: mode,
+      pool:
+          List<String>.from(
+            data['pool'] as List<dynamic>? ?? const <dynamic>[],
+          ).map(_DominoTile.fromText).toList(),
+      schemaVersion:
+          mode.usesPool && storedSchemaVersion < 2 ? 2 : storedSchemaVersion,
       profiles: {
         for (final entry in rawProfiles.entries)
           entry.key.toUpperCase(): Map<String, dynamic>.from(entry.value ?? {}),
@@ -2336,6 +3440,13 @@ class _OnlineGame {
             data['rematchRequestedBy'] as List<dynamic>? ?? const [],
           ).map((id) => id.toUpperCase()).toSet(),
       revision: (data['revision'] as num?)?.toInt() ?? 0,
+      lastAction: Map<String, dynamic>.from(
+        data['lastAction'] as Map<String, dynamic>? ?? const {},
+      ),
+      quickChat: Map<String, dynamic>.from(
+        data['quickChat'] as Map<String, dynamic>? ?? const {},
+      ),
+      rankingEligible: data['rankingEligible'] as bool? ?? true,
     );
   }
 
@@ -2365,8 +3476,19 @@ class _OnlineGame {
 
   String initialsFor(String playerId) {
     final id = playerId.toUpperCase();
-    return profiles[id]?['initials'] as String? ??
-        id.split('.').first.padRight(2, '?').substring(0, 2);
+    final stored = profiles[id]?['initials'];
+    if (stored is String && stored.trim().isNotEmpty) {
+      return stored.trim().toUpperCase();
+    }
+    return id.split('.').first.padRight(2, '?').substring(0, 2);
+  }
+
+  String displayNameFor(String playerId) {
+    final id = playerId.toUpperCase();
+    return _safeOnlineDisplayName(
+      profiles[id]?['displayName'],
+      fallback: initialsFor(id),
+    );
   }
 
   String countryCodeFor(String playerId) {
@@ -2386,10 +3508,24 @@ class _OnlineGame {
   String avatarKeyFor(String playerId) =>
       profiles[playerId.toUpperCase()]?['avatarKey'] as String? ?? 'person';
 
+  bool isFallbackOnlinePlayer(String playerId) {
+    final profile = profiles[playerId.toUpperCase()];
+    return profile?['isCpu'] == true &&
+        profile?['isFallbackOnlinePlayer'] == true;
+  }
+
   bool isMyTurn(String playerId) => turnId == playerId.toUpperCase();
 
   bool hasMove(String playerId) =>
       handFor(playerId).any((tile) => validSides(tile).isNotEmpty);
+
+  bool canDraw(String playerId) =>
+      mode.usesPool &&
+      isMyTurn(playerId) &&
+      !roundOver &&
+      !matchOver &&
+      !hasMove(playerId) &&
+      pool.isNotEmpty;
 
   List<_BoardSide> validSides(_DominoTile tile) {
     if (board.isEmpty) return [_BoardSide.right];
@@ -2409,6 +3545,13 @@ class _OnlineGame {
     required _BoardSide side,
   }) {
     final clean = playerId.toUpperCase();
+    final sidesBeforePlay = validSides(tile);
+    final capicua =
+        handFor(clean).length == 1 &&
+        !tile.isDouble &&
+        board.isNotEmpty &&
+        leftOpen != rightOpen &&
+        sidesBeforePlay.length == 2;
     final nextHands = {
       for (final entry in hands.entries)
         entry.key: List<_DominoTile>.from(entry.value),
@@ -2433,9 +3576,10 @@ class _OnlineGame {
       board: nextBoard,
       turnId: other,
       passed: <String>{},
-      message: '${initialsFor(clean)} played ${tile.label}',
+      message: '${displayNameFor(clean)} played ${tile.label}',
       lastPlayedTile: tile,
       revision: revision + 1,
+      lastAction: <String, dynamic>{'type': 'play', 'player': clean},
     );
     if (nextHands[clean]!.isNotEmpty) return next;
     final points = nextHands[other]!.fold<int>(
@@ -2445,19 +3589,25 @@ class _OnlineGame {
     return next.finishRound(
       winner: clean,
       points: points,
-      result: '${initialsFor(clean)} wins the round +$points',
+      result: '${displayNameFor(clean)} wins the round +$points',
+      special: capicua ? 'capicua' : null,
+      actionPlayer: clean,
     );
   }
 
   _OnlineGame pass(String playerId) {
+    if (mode.usesPool && pool.isNotEmpty) {
+      throw StateError('A player cannot pass while the pool has tiles.');
+    }
     final clean = playerId.toUpperCase();
     final nextPassed = Set<String>.from(passed)..add(clean);
     final other = otherPlayerId(clean);
     final next = copyWith(
       turnId: other,
       passed: nextPassed,
-      message: '${initialsFor(clean)} passed',
+      message: '${displayNameFor(clean)} passed',
       revision: revision + 1,
+      lastAction: <String, dynamic>{'type': 'pass', 'player': clean},
     );
     if (nextPassed.length >= 2) {
       final myPoints = handFor(
@@ -2472,16 +3622,47 @@ class _OnlineGame {
         winner: winner,
         points: combinedPoints,
         result:
-            '${initialsFor(winner)} wins the blocked round +$combinedPoints',
+            '${displayNameFor(winner)} wins the blocked round +$combinedPoints',
+        blocked: true,
+        actionPlayer: clean,
       );
     }
     return next;
+  }
+
+  _OnlineGame drawTile(String playerId) {
+    final clean = playerId.toUpperCase();
+    if (!canDraw(clean)) {
+      throw StateError('The player cannot draw a tile right now.');
+    }
+    final drawnTile = pool.first;
+    final nextPool = List<_DominoTile>.from(pool)..removeAt(0);
+    final nextHands = {
+      for (final entry in hands.entries)
+        entry.key: List<_DominoTile>.from(entry.value),
+    };
+    nextHands[clean]!.add(drawnTile);
+    return copyWith(
+      hands: nextHands,
+      pool: nextPool,
+      passed: const <String>{},
+      message: '${displayNameFor(clean)} drew a tile (${nextPool.length} left)',
+      revision: revision + 1,
+      lastAction: <String, dynamic>{
+        'type': 'draw',
+        'player': clean,
+        'remaining': nextPool.length,
+      },
+    );
   }
 
   _OnlineGame finishRound({
     required String winner,
     required int points,
     required String result,
+    String? special,
+    bool blocked = false,
+    String? actionPlayer,
   }) {
     final nextScores = Map<String, int>.from(scores);
     nextScores[winner] = (nextScores[winner] ?? 0) + points;
@@ -2492,7 +3673,13 @@ class _OnlineGame {
       matchOver: completed,
       winnerId: winner,
       roundPoints: points,
-      message: completed ? '${initialsFor(winner)} wins the match' : result,
+      message: completed ? '${displayNameFor(winner)} wins the match' : result,
+      lastAction: <String, dynamic>{
+        'type': 'roundEnd',
+        'player': actionPlayer ?? winner,
+        if (special != null) 'special': special,
+        if (blocked) 'blocked': true,
+      },
     );
   }
 
@@ -2506,17 +3693,24 @@ class _OnlineGame {
       players[0]: deck.take(7).toList(),
       players[1]: deck.skip(7).take(7).toList(),
     };
+    final nextPool =
+        mode.usesPool
+            ? List<_DominoTile>.from(deck.skip(14))
+            : const <_DominoTile>[];
     final starter = players.contains(winnerId) ? winnerId : players.first;
     return _OnlineGame(
       id: id,
       players: players,
       hands: nextHands,
+      mode: mode,
+      pool: nextPool,
+      schemaVersion: mode.usesPool ? 2 : schemaVersion,
       profiles: profiles,
       board: const [],
       turnId: starter,
       passed: const <String>{},
       roundOver: false,
-      message: '${initialsFor(starter)} starts the round',
+      message: '${displayNameFor(starter)} starts the round',
       scores: scores,
       roundNumber: roundNumber + 1,
       targetScore: targetScore,
@@ -2526,6 +3720,9 @@ class _OnlineGame {
       lastPlayedTile: null,
       rematchRequestedBy: const <String>{},
       revision: revision + 1,
+      lastAction: const <String, dynamic>{'type': 'start'},
+      quickChat: quickChat,
+      rankingEligible: rankingEligible,
     );
   }
 
@@ -2539,6 +3736,10 @@ class _OnlineGame {
       players[0]: deck.take(7).toList(),
       players[1]: deck.skip(7).take(7).toList(),
     };
+    final nextPool =
+        mode.usesPool
+            ? List<_DominoTile>.from(deck.skip(14))
+            : const <_DominoTile>[];
     final candidates = <_Starter>[
       for (final entry in nextHands.entries)
         for (final tile in entry.value) _Starter(entry.key, tile),
@@ -2559,22 +3760,28 @@ class _OnlineGame {
       id: id,
       players: players,
       hands: nextHands,
+      mode: mode,
+      pool: nextPool,
+      schemaVersion: mode.usesPool ? 2 : schemaVersion,
       profiles: profiles,
       board: [_BoardDomino(starter.tile, isFirst: true)],
       turnId: nextPlayer,
       passed: const <String>{},
       roundOver: false,
       message:
-          '${initialsFor(starter.playerId)} opened with ${starter.tile.label}',
+          '${displayNameFor(starter.playerId)} opened with ${starter.tile.label}',
       scores: {for (final player in players) player: 0},
       roundNumber: 1,
-      targetScore: DominoGameConfig.targetScore,
+      targetScore: targetScore,
       winnerId: '',
       roundPoints: 0,
       matchOver: false,
       lastPlayedTile: starter.tile,
       rematchRequestedBy: const <String>{},
       revision: revision + 1,
+      lastAction: const <String, dynamic>{'type': 'start'},
+      quickChat: quickChat,
+      rankingEligible: rankingEligible,
     );
   }
 
@@ -2594,6 +3801,12 @@ class _OnlineGame {
     _DominoTile? lastPlayedTile,
     Set<String>? rematchRequestedBy,
     int? revision,
+    Map<String, dynamic>? lastAction,
+    Map<String, dynamic>? quickChat,
+    bool? rankingEligible,
+    DominoMatchMode? mode,
+    List<_DominoTile>? pool,
+    int? schemaVersion,
   }) {
     return _OnlineGame(
       id: id,
@@ -2614,15 +3827,24 @@ class _OnlineGame {
       lastPlayedTile: lastPlayedTile ?? this.lastPlayedTile,
       rematchRequestedBy: rematchRequestedBy ?? this.rematchRequestedBy,
       revision: revision ?? this.revision,
+      lastAction: lastAction ?? this.lastAction,
+      quickChat: quickChat ?? this.quickChat,
+      rankingEligible: rankingEligible ?? this.rankingEligible,
+      mode: mode ?? this.mode,
+      pool: pool ?? this.pool,
+      schemaVersion: schemaVersion ?? this.schemaVersion,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
+      'mode': mode.storageValue,
+      'schemaVersion': schemaVersion,
       'hands': {
         for (final entry in hands.entries)
           entry.key: entry.value.map((tile) => tile.toText()).toList(),
       },
+      'pool': pool.map((tile) => tile.toText()).toList(),
       'board': [
         for (final domino in board)
           {
@@ -2643,6 +3865,9 @@ class _OnlineGame {
       'status': matchOver ? 'matchOver' : (roundOver ? 'roundOver' : 'active'),
       'message': message,
       'revision': revision,
+      'lastAction': lastAction,
+      'quickChat': quickChat,
+      'rankingEligible': rankingEligible,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -2702,15 +3927,30 @@ class _OnlineBoard extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final largeTable =
+            constraints.maxWidth >= 600 && constraints.maxHeight >= 500;
+        final macPlayedTileFactor =
+            !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
+                ? 0.80
+                : 1.0;
+        // Keep the iPad/Mac table prominent without making a short chain feel
+        // oversized. The complete path still reduces only when it reaches an
+        // edge.
         final tileShort =
-            min(
-              44.0,
-              max(
-                30.0,
-                min(constraints.maxWidth / 8.8, constraints.maxHeight / 5.2),
-              ),
-            ) *
-            playedTileScale;
+            (largeTable
+                ? 75.6
+                : min(
+                  44.0,
+                  max(
+                    30.0,
+                    min(
+                      constraints.maxWidth / 8.8,
+                      constraints.maxHeight / 5.2,
+                    ),
+                  ),
+                )) *
+            playedTileScale *
+            macPlayedTileFactor;
         final tileLong = tileShort * 1.82;
         final positions = _layoutBoard(
           board: board,

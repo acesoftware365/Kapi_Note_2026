@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/block_matchmaking_service.dart';
 import '../../services/block_room_service.dart';
+import '../../services/domino_match_mode.dart';
+import '../../services/online_version_service.dart';
 import '../../widgets/anchored_adaptive_banner_ad.dart';
 import '../admob_variable.dart';
 import '../domino_online_game_screen.dart';
@@ -16,7 +19,9 @@ import 'match_found_transition_screen.dart';
 import 'simple_friends_screen.dart';
 
 class SimpleLobbyScreen extends StatefulWidget {
-  const SimpleLobbyScreen({super.key});
+  const SimpleLobbyScreen({super.key, this.mode = DominoMatchMode.block});
+
+  final DominoMatchMode mode;
 
   @override
   State<SimpleLobbyScreen> createState() => _SimpleLobbyScreenState();
@@ -30,17 +35,21 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   bool _openingGame = false;
   bool _preparingMatch = false;
   DominoPlayerProfile? _matchedOpponent;
+  int _matchedOpponentPoints = 0;
   int _matchCountdown = 3;
+  int _searchSecondsRemaining =
+      BlockMatchmakingService.quickSearchDuration.inSeconds;
   Timer? _presenceTimer;
+  Timer? _searchCountdownTimer;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _matchSubscription;
   String? _activeSearchToken;
 
-  late final BlockMatchmakingService _matchmaking = BlockMatchmakingService(
-    _db,
-  );
+  late final BlockMatchmakingService _matchmaking;
 
   bool get _isSpanish => Localizations.localeOf(context).languageCode == 'es';
+  bool get _isDrawPool => widget.mode == DominoMatchMode.drawPool;
+  String get _modeTitle => _isDrawPool ? 'Draw / Pool' : 'Block Dominoes';
   String get _adUnitId =>
       defaultTargetPlatform == TargetPlatform.android
           ? AdmobVariable.bannerAndroidUnit
@@ -49,12 +58,14 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   @override
   void initState() {
     super.initState();
+    _matchmaking = BlockMatchmakingService(_db, mode: widget.mode);
     unawaited(_loadProfile());
   }
 
   @override
   void dispose() {
     _presenceTimer?.cancel();
+    _searchCountdownTimer?.cancel();
     unawaited(_matchSubscription?.cancel());
     final profile = _profile;
     if (_searching && profile != null) {
@@ -126,6 +137,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       {
         'publicId': profile.publicId,
         'initials': profile.initials,
+        'displayName': profile.effectiveDisplayName,
         'countryCode': profile.countryCode,
         'code': profile.code,
         'avatarKey': profile.avatarKey,
@@ -303,7 +315,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          _isSpanish ? 'Block Dominoes · 1 vs 1' : 'Block Dominoes · 1 vs 1',
+          '$_modeTitle · 1 vs 1',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.70),
@@ -318,7 +330,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   Widget _buildPlayers(DominoPlayerProfile profile, {required bool compact}) {
     final tier = DominoTierVisual.fromScore(_points);
     final opponent = _matchedOpponent;
-    final opponentTier = DominoTierVisual.fromScore(0);
+    final opponentTier = DominoTierVisual.fromScore(_matchedOpponentPoints);
     return Container(
       padding: EdgeInsets.all(compact ? 11 : 16),
       decoration: _panelDecoration(),
@@ -328,7 +340,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
             child: _PlayerSlot(
               icon: profile.icon,
               avatarKey: profile.avatarKey,
-              initials: profile.initials,
+              initials: profile.effectiveDisplayName,
               subtitle: '${_countryLabel(profile.countryCode)} · ${tier.label}',
               color: tier.avatarBackground(profile.color),
               borderColor: tier.frameColor(),
@@ -346,11 +358,11 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
               initials:
                   opponent == null
                       ? (_isSpanish ? 'Rival' : 'Rival')
-                      : _countryLabel(opponent.countryCode),
+                      : opponent.effectiveDisplayName,
               subtitle:
                   opponent == null
                       ? (_isSpanish ? 'Sin elegir' : 'Not selected')
-                      : opponentTier.label,
+                      : '${_countryLabel(opponent.countryCode)} · ${opponentTier.label}',
               color: opponent?.color ?? const Color(0xFF21181B),
               borderColor:
                   opponent == null ? Colors.white24 : opponentTier.frameColor(),
@@ -395,17 +407,6 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
             onTap: () => _showInviteChoices(profile),
             compact: compact,
           ),
-          SizedBox(height: compact ? 8 : 12),
-          _LobbyChoiceButton(
-            icon: Icons.smart_toy_rounded,
-            title: _isSpanish ? 'Jugar contra CPU' : 'Play against CPU',
-            subtitle:
-                _isSpanish
-                    ? 'Practicar sin esperar'
-                    : 'Practice without waiting',
-            onTap: () => Navigator.pushNamed(context, '/domino-block'),
-            compact: compact,
-          ),
         ],
       ),
     );
@@ -418,12 +419,32 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       decoration: _panelDecoration(),
       child: Column(
         children: [
-          const SizedBox(
+          SizedBox(
             width: 54,
             height: 54,
-            child: CircularProgressIndicator(
-              color: Color(0xFFFFD36B),
-              strokeWidth: 5,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                const CircularProgressIndicator(
+                  color: Color(0xFFFFD36B),
+                  strokeWidth: 5,
+                ),
+                if (_matchedOpponent == null)
+                  Text(
+                    '$_searchSecondsRemaining',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  )
+                else
+                  const Icon(
+                    Icons.check_rounded,
+                    color: Color(0xFFFFD36B),
+                    size: 26,
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 20),
@@ -441,8 +462,8 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
           Text(
             _matchedOpponent == null
                 ? (_isSpanish
-                    ? 'Puedes cancelar cuando quieras.'
-                    : 'You can cancel at any time.')
+                    ? 'Si nadie aparece, completaremos la mesa en $_searchSecondsRemaining s.'
+                    : 'If nobody joins, the table completes in $_searchSecondsRemaining s.')
                 : (_isSpanish
                     ? 'La partida comienza en $_matchCountdown…'
                     : 'Match starts in $_matchCountdown…'),
@@ -474,6 +495,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   }
 
   Future<void> _startMatchmaking() async {
+    if (!await _ensureOnlineVersion()) return;
     final profile = _profile;
     if (profile == null || _searching) return;
     final searchToken = BlockMatchmakingService.createSearchToken(
@@ -482,6 +504,21 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
     setState(() {
       _searching = true;
       _activeSearchToken = searchToken;
+      _matchedOpponent = null;
+      _matchedOpponentPoints = 0;
+      _searchSecondsRemaining =
+          BlockMatchmakingService.quickSearchDuration.inSeconds;
+    });
+    _searchCountdownTimer?.cancel();
+    _searchCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || !_searching || _matchedOpponent != null) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _searchSecondsRemaining = max(0, _searchSecondsRemaining - 1);
+      });
+      if (_searchSecondsRemaining == 0) timer.cancel();
     });
     await _matchSubscription?.cancel();
     _matchSubscription = _matchmaking.watch(profile.publicId).listen((doc) {
@@ -510,35 +547,109 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
         return;
       }
     } catch (error) {
+      if (!mounted || !_searching || _activeSearchToken != searchToken) {
+        return;
+      }
+      final committedGameId = await _reconcileCommittedMatch(
+        profile.publicId,
+        searchToken,
+      );
+      if (!mounted || !_searching || _activeSearchToken != searchToken) {
+        return;
+      }
+      if (committedGameId != null) {
+        await _openOnlineGame(committedGameId);
+        return;
+      }
+      await _matchSubscription?.cancel();
+      _matchSubscription = null;
+      await _matchmaking.cancel(profile.publicId, expectedToken: searchToken);
       if (!mounted) return;
       setState(() {
         _searching = false;
         _activeSearchToken = null;
       });
+      _searchCountdownTimer?.cancel();
+      final busyError =
+          error is StateError &&
+          error.toString().toLowerCase().contains('already');
       _showMessage(
-        _isSpanish
-            ? 'Ya estas jugando en una sala. Sal de esa sala antes de buscar otra partida.'
-            : 'You are already in a room. Leave it before searching for another match.',
+        busyError
+            ? (_isSpanish
+                ? 'Ya estas jugando en una sala. Sal de esa sala antes de buscar otra partida.'
+                : 'You are already in a room. Leave it before searching for another match.')
+            : (_isSpanish
+                ? 'No pudimos completar la búsqueda. Revisa tu conexión e inténtalo de nuevo.'
+                : 'We could not complete the search. Check your connection and try again.'),
       );
     }
   }
 
   Future<void> _cancelMatchmaking() async {
     final profile = _profile;
+    final expectedToken = _activeSearchToken;
+    if (mounted) {
+      setState(() {
+        _searching = false;
+        _matchedOpponent = null;
+        _matchedOpponentPoints = 0;
+        _activeSearchToken = null;
+      });
+    }
+    _searchCountdownTimer?.cancel();
     await _matchSubscription?.cancel();
     _matchSubscription = null;
     if (profile != null) {
-      await _matchmaking.cancel(
-        profile.publicId,
-        expectedToken: _activeSearchToken,
-      );
+      await _matchmaking.cancel(profile.publicId, expectedToken: expectedToken);
     }
-    if (!mounted) return;
-    setState(() {
-      _searching = false;
-      _matchedOpponent = null;
-      _activeSearchToken = null;
-    });
+  }
+
+  Future<String?> _reconcileCommittedMatch(
+    String playerId,
+    String searchToken,
+  ) async {
+    final cleanPlayerId = playerId.toUpperCase();
+    try {
+      final snapshots = await Future.wait([
+        _db
+            .collection(BlockRoomService.sessionsCollection)
+            .doc(cleanPlayerId)
+            .get(const GetOptions(source: Source.server)),
+        _db
+            .collection('kapi_block_matchmaking')
+            .doc(cleanPlayerId)
+            .get(const GetOptions(source: Source.server)),
+      ]);
+      final session = snapshots[0].data();
+      final queue = snapshots[1].data();
+      final possibleGameIds = <String>{
+        if (session?['activeGameId'] is String)
+          session!['activeGameId'] as String,
+        if (queue?['searchToken'] == searchToken && queue?['gameId'] is String)
+          queue!['gameId'] as String,
+      }..removeWhere((id) => id.isEmpty);
+      for (final gameId in possibleGameIds) {
+        if (!BlockRoomService.ownsRoom(session, gameId)) continue;
+        final gameSnapshot = await _db
+            .collection('kapi_online_games')
+            .doc(gameId)
+            .get(const GetOptions(source: Source.server));
+        final game = gameSnapshot.data();
+        final players =
+            (game?['players'] as List<dynamic>? ?? const [])
+                .map((id) => id.toString().toUpperCase())
+                .toSet();
+        final status = game?['status'] as String? ?? '';
+        if (players.contains(cleanPlayerId) &&
+            status != 'abandoned' &&
+            status != 'matchOver') {
+          return gameId;
+        }
+      }
+    } catch (_) {
+      // A failed reconciliation is handled by the normal transient-error path.
+    }
+    return null;
   }
 
   Future<void> _showMatchedPlayerThenOpen(
@@ -547,6 +658,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   ) async {
     if (_preparingMatch || _openingGame || !mounted) return;
     _preparingMatch = true;
+    _searchCountdownTimer?.cancel();
     final profile = _profile;
     if (profile == null ||
         !await BlockRoomService(
@@ -555,18 +667,11 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       _preparingMatch = false;
       return;
     }
-    final snapshot =
-        await _db.collection('kapi_lobby_profiles').doc(opponentId).get();
-    final data = snapshot.data() ?? const <String, dynamic>{};
-    final opponent = DominoPlayerProfile(
-      initials: (data['initials'] as String? ?? 'P2').toUpperCase(),
-      countryCode: (data['countryCode'] as String? ?? 'US').toUpperCase(),
-      code: (data['code'] as String? ?? '111111').toUpperCase(),
-      avatarKey: data['avatarKey'] as String? ?? 'person',
-    );
+    final opponentData = await _loadOpponentProfile(gameId, opponentId);
     if (!mounted) return;
     setState(() {
-      _matchedOpponent = opponent;
+      _matchedOpponent = opponentData.profile;
+      _matchedOpponentPoints = opponentData.points;
       _matchCountdown = 3;
     });
     for (var remaining = 1; remaining > 0; remaining--) {
@@ -579,7 +684,12 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       await _openOnlineGame(gameId);
     } finally {
       _preparingMatch = false;
-      if (mounted) setState(() => _matchedOpponent = null);
+      if (mounted) {
+        setState(() {
+          _matchedOpponent = null;
+          _matchedOpponentPoints = 0;
+        });
+      }
     }
   }
 
@@ -589,6 +699,7 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   }) async {
     if (_openingGame || !mounted) return;
     _openingGame = true;
+    _searchCountdownTimer?.cancel();
     await _matchSubscription?.cancel();
     _matchSubscription = null;
     _activeSearchToken = null;
@@ -609,18 +720,22 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       (id) => id.toUpperCase() != myId,
       orElse: () => '',
     );
-    final opponentSnapshot =
+    final resolvedOpponent =
         opponentId.isEmpty
-            ? null
-            : await _db.collection('kapi_lobby_profiles').doc(opponentId).get();
-    final opponentData = opponentSnapshot?.data() ?? const <String, dynamic>{};
-    final opponent = DominoPlayerProfile(
-      initials: (opponentData['initials'] as String? ?? 'P2').toUpperCase(),
-      countryCode:
-          (opponentData['countryCode'] as String? ?? 'US').toUpperCase(),
-      code: (opponentData['code'] as String? ?? '111111').toUpperCase(),
-      avatarKey: opponentData['avatarKey'] as String? ?? 'person',
-    );
+            ? (
+              profile: const DominoPlayerProfile(
+                initials: 'P2',
+                countryCode: 'US',
+                code: '111111',
+                avatarKey: 'person',
+              ),
+              points: 0,
+            )
+            : await _loadOpponentProfile(
+              gameId,
+              opponentId,
+              gameData: gameData,
+            );
     if (!mounted) return;
     await Navigator.push(
       context,
@@ -633,9 +748,8 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
                       gameId: gameId,
                       player: _profile!,
                       playerPoints: _points,
-                      opponent: opponent,
-                      opponentPoints:
-                          (opponentData['totalPoints'] as num?)?.toInt() ?? 0,
+                      opponent: resolvedOpponent.profile,
+                      opponentPoints: resolvedOpponent.points,
                     )
                     : DominoOnlineGameScreen(
                       gameId: gameId,
@@ -645,6 +759,45 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
     );
     _openingGame = false;
     await _upsertPresence(_profile!);
+  }
+
+  Future<({DominoPlayerProfile profile, int points})> _loadOpponentProfile(
+    String gameId,
+    String opponentId, {
+    Map<String, dynamic>? gameData,
+  }) async {
+    final cleanOpponentId = opponentId.toUpperCase();
+    final resolvedGameData =
+        gameData ??
+        (await _db.collection('kapi_online_games').doc(gameId).get()).data() ??
+        const <String, dynamic>{};
+    final profiles = Map<String, dynamic>.from(
+      resolvedGameData['profiles'] as Map? ?? const <String, dynamic>{},
+    );
+    final embedded = Map<String, dynamic>.from(
+      profiles[cleanOpponentId] as Map? ?? const <String, dynamic>{},
+    );
+    final lobbySnapshot =
+        embedded.isEmpty
+            ? await _db
+                .collection('kapi_lobby_profiles')
+                .doc(cleanOpponentId)
+                .get()
+            : null;
+    final data =
+        embedded.isNotEmpty
+            ? embedded
+            : lobbySnapshot?.data() ?? const <String, dynamic>{};
+    return (
+      profile: DominoPlayerProfile(
+        initials: (data['initials'] as String? ?? 'P2').toUpperCase(),
+        displayName: data['displayName'] as String? ?? '',
+        countryCode: (data['countryCode'] as String? ?? 'US').toUpperCase(),
+        code: (data['code'] as String? ?? '111111').toUpperCase(),
+        avatarKey: data['avatarKey'] as String? ?? 'person',
+      ),
+      points: (data['totalPoints'] as num?)?.toInt() ?? 0,
+    );
   }
 
   Future<String?> _resolveCode(String raw) async {
@@ -800,15 +953,19 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
       final playerDoc =
           await _db.collection('kapi_lobby_profiles').doc(playerId).get();
       final initials = playerDoc.data()?['initials'] as String? ?? 'P2';
+      final displayName =
+          playerDoc.data()?['displayName'] as String? ?? initials;
       final inviteRef = _db.collection('kapi_game_invites').doc();
       await inviteRef.set({
-        'gameType': 'block',
+        'gameType': widget.mode.storageValue,
         'fromId': profile.publicId.toUpperCase(),
         'toId': playerId.toUpperCase(),
-        'mode': 'block',
+        'mode': widget.mode.storageValue,
         'status': 'pending',
         'fromInitials': profile.initials,
+        'fromDisplayName': profile.effectiveDisplayName,
         'toInitials': initials,
+        'toDisplayName': displayName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -946,6 +1103,8 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
   String _countryLabel(String code) => code == 'US' ? 'USA' : code;
 
   Future<void> _showInviteChoices(DominoPlayerProfile profile) async {
+    if (!await _ensureOnlineVersion()) return;
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF101820),
@@ -1000,8 +1159,8 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
                       Navigator.pop(context);
                       await Share.share(
                         _isSpanish
-                            ? 'Juega Block Dominoes conmigo en Kapi Note. Mi ID es ${profile.code.toUpperCase()}.'
-                            : 'Play Block Dominoes with me in Kapi Note. My ID is ${profile.code.toUpperCase()}.',
+                            ? 'Juega $_modeTitle conmigo en Kapi Note. Mi ID es ${profile.code.toUpperCase()}.'
+                            : 'Play $_modeTitle with me in Kapi Note. My ID is ${profile.code.toUpperCase()}.',
                       );
                     },
                   ),
@@ -1010,6 +1169,14 @@ class _SimpleLobbyScreenState extends State<SimpleLobbyScreen> {
             ),
           ),
     );
+  }
+
+  Future<bool> _ensureOnlineVersion() async {
+    final status = await OnlineVersionService.instance.check(refresh: true);
+    if (!mounted) return false;
+    if (!status.requiresUpdate) return true;
+    await showOnlineVersionDialog(context, status, allowOffline: false);
+    return false;
   }
 
   BoxDecoration _panelDecoration() {

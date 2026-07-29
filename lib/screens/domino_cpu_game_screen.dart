@@ -13,6 +13,8 @@ import '../widgets/adaptive_domino_hand_tray.dart';
 import '../widgets/anchored_adaptive_banner_ad.dart';
 import '../widgets/game_audio_controls.dart';
 import '../widgets/domino_result_celebration.dart';
+import '../widgets/domino_special_play_effect.dart';
+import '../widgets/draw_pool_action_button.dart';
 import '../widgets/kapi_centerpiece_overlay.dart';
 import '../widgets/kapi_table_center_material.dart';
 import '../services/player_points_service.dart';
@@ -76,8 +78,32 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   _DominoTile? _sideChoiceTile;
   Completer<_BoardSide?>? _sideChoiceCompleter;
   Timer? _statusTimer;
+  Timer? _specialEffectTimer;
+  DominoSpecialEffectKind? _specialEffectKind;
+  String? _specialEffectPlayerName;
+  int _specialEffectSequence = 0;
+  bool _blockResultPending = false;
 
   bool get _isDrawMode => widget.mode == DominoCpuMode.draw;
+
+  /// The large iPad layout has enough room for a proper modal menu and a
+  /// larger table. Keeping this in the game screen avoids treating a wide
+  /// phone in landscape as a tablet.
+  // iPad may report a 512-683 pt compact width while its window is floating.
+  // The long side still distinguishes it from any supported phone, so use it
+  // as a second tablet signal for menus and table sizing.
+  bool get _isTablet {
+    final size = MediaQuery.sizeOf(context);
+    return size.shortestSide >= 550 || size.longestSide >= 1100;
+  }
+
+  bool get _usesStableSettingsDialog =>
+      defaultTargetPlatform == TargetPlatform.iOS || _isTablet;
+
+  // On the wide table, the board needs the visual emphasis. Keep the player
+  // hand comfortably tappable, but make it less dominant than the dominoes
+  // already played in the center.
+  double get _effectiveHandTileScale => _handTileScale * (_isTablet ? 0.72 : 1);
 
   String get _adUnitId =>
       defaultTargetPlatform == TargetPlatform.android
@@ -97,6 +123,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
     );
     DominoDisplaySettings.handTileScale.removeListener(_handleHandTileScale);
     _statusTimer?.cancel();
+    _specialEffectTimer?.cancel();
     if (!(_sideChoiceCompleter?.isCompleted ?? true)) {
       _sideChoiceCompleter!.complete(null);
     }
@@ -181,6 +208,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   }
 
   void _startNewRound() {
+    _specialEffectTimer?.cancel();
     _confettiController.stop();
     _confettiController.reset();
     _showConfetti = false;
@@ -201,6 +229,9 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
     _lastTileOwner = null;
     _roundCpuTiles = [];
     _roundPlayerTiles = [];
+    _specialEffectKind = null;
+    _specialEffectPlayerName = null;
+    _blockResultPending = false;
 
     if (_previousRoundWinner == _RoundWinner.player) {
       _isPlayerTurn = true;
@@ -315,6 +346,12 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
     if (!sides.contains(side)) return;
     final selectedSide = side;
 
+    final capicua =
+        _playerHand.length == 1 &&
+        !tile.isDouble &&
+        _board.isNotEmpty &&
+        _leftOpen != _rightOpen &&
+        sides.length == 2;
     setState(() {
       _placeTile(tile, selectedSide);
       _playerHand.remove(tile);
@@ -330,7 +367,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       ),
     );
 
-    if (_checkRoundEnd()) return;
+    if (_checkRoundEnd(capicua: capicua)) return;
     await _playCpuTurn();
   }
 
@@ -438,6 +475,13 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
         move = _findCpuMove();
       }
     }
+    final cpuCapicua =
+        move != null &&
+        _cpuHand.length == 1 &&
+        !move.tile.isDouble &&
+        _board.isNotEmpty &&
+        _leftOpen != _rightOpen &&
+        _validSides(move.tile).length == 2;
 
     setState(() {
       if (move != null) {
@@ -463,10 +507,13 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
               : AudioAssets.dominoPlace,
         ),
       );
+    } else {
+      unawaited(AudioManager.instance.playSfx(AudioAssets.dominoPass));
+      _showSpecialEffect(DominoSpecialEffectKind.pass, playerName: 'CPU');
     }
     _scrollPlayerHandToPlayableStart();
 
-    _checkRoundEnd();
+    _checkRoundEnd(capicua: cpuCapicua);
   }
 
   _CpuMove? _findCpuMove() {
@@ -510,7 +557,11 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       _isPlayerTurn = false;
       _setStatus(_isSpanish ? 'Pasaste' : 'You passed');
     });
-    unawaited(AudioManager.instance.playSfx(AudioAssets.turnNotification));
+    unawaited(AudioManager.instance.playSfx(AudioAssets.dominoPass));
+    _showSpecialEffect(
+      DominoSpecialEffectKind.pass,
+      playerName: _profile.initials,
+    );
     await _playCpuTurn();
   }
 
@@ -573,10 +624,11 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
     }());
   }
 
-  bool _checkRoundEnd() {
+  bool _checkRoundEnd({bool capicua = false}) {
     String? result;
     _RoundWinner? winner;
     var playerGained = 0;
+    var blocked = false;
     if (_playerHand.isEmpty) {
       final gained = _cpuHand.fold<int>(0, (sum, tile) => sum + tile.points);
       _playerScore += gained;
@@ -595,6 +647,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
               ? 'CPU gana la ronda +$gained'
               : 'CPU won the round +$gained';
     } else if (_isBlocked()) {
+      blocked = true;
       final playerPoints = _playerHand.fold<int>(
         0,
         (sum, tile) => sum + tile.points,
@@ -627,6 +680,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
     if (result == null) return false;
     setState(() {
       _roundOver = true;
+      _blockResultPending = blocked;
       _roundWinner = winner;
       _previousRoundWinner = winner;
       _roundCpuTiles = List<_DominoTile>.from(_cpuHand);
@@ -636,7 +690,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
     });
     unawaited(
       AudioManager.instance.playSfx(
-        _matchOver ? AudioAssets.gameOver : AudioAssets.roundWin,
+        blocked ? AudioAssets.dominoBlocked : AudioAssets.dominoLastTile,
       ),
     );
     if (_matchOver) {
@@ -670,6 +724,7 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
         code: _profile.code,
         publicId: _profile.publicId,
         initials: _profile.initials,
+        displayName: _profile.effectiveDisplayName,
         countryCode: _profile.countryCode,
         mode: _isDrawMode ? 'draw_pool' : 'classic',
         pointsEarned: playerGained,
@@ -678,7 +733,47 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
         wonRound: winner == _RoundWinner.player,
       ),
     );
+    if (blocked) {
+      _showSpecialEffect(DominoSpecialEffectKind.blocked);
+    } else if (capicua) {
+      _showSpecialEffect(
+        DominoSpecialEffectKind.capicua,
+        playerName: winner == _RoundWinner.player ? _profile.initials : 'CPU',
+      );
+    } else if (_playerHand.isEmpty || _cpuHand.isEmpty) {
+      _showSpecialEffect(
+        DominoSpecialEffectKind.domino,
+        playerName: winner == _RoundWinner.player ? _profile.initials : 'CPU',
+      );
+    }
     return true;
+  }
+
+  void _showSpecialEffect(DominoSpecialEffectKind kind, {String? playerName}) {
+    _specialEffectTimer?.cancel();
+    final duration = switch (kind) {
+      DominoSpecialEffectKind.pass ||
+      DominoSpecialEffectKind.roundPass => const Duration(milliseconds: 2250),
+      DominoSpecialEffectKind.domino => const Duration(milliseconds: 3000),
+      DominoSpecialEffectKind.blocked => const Duration(milliseconds: 2750),
+      DominoSpecialEffectKind.capicua => const Duration(milliseconds: 3050),
+    };
+    if (!mounted) return;
+    setState(() {
+      _specialEffectKind = kind;
+      _specialEffectPlayerName = playerName;
+      _specialEffectSequence += 1;
+    });
+    _specialEffectTimer = Timer(duration, () {
+      if (!mounted) return;
+      setState(() {
+        _specialEffectKind = null;
+        _specialEffectPlayerName = null;
+        if (kind == DominoSpecialEffectKind.blocked) {
+          _blockResultPending = false;
+        }
+      });
+    });
   }
 
   bool _isBlocked() {
@@ -730,10 +825,11 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   }
 
   Widget _buildTopBar() {
+    final isMacOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
     final title =
         _isDrawMode
             ? (_isSpanish ? 'Control con pozo' : 'Draw / Pool')
-            : 'Block beta';
+            : (isMacOS ? 'Block' : 'Block beta');
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -742,10 +838,14 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
           children: [
             IconButton(
               onPressed: () {
-                Navigator.pushNamed(
+                // Home must leave the current CPU match and keep the game
+                // mode selector on screen. Pushing it over the match left a
+                // resumable route beneath it, which made Home appear to open
+                // and immediately disappear.
+                Navigator.pushNamedAndRemoveUntil(
                   context,
                   '/start-game',
-                  arguments: {'resumeClassicGame': !_matchOver},
+                  (route) => route.isFirst,
                 );
               },
               tooltip: _isSpanish ? 'Inicio del juego' : 'Game home',
@@ -809,75 +909,121 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
   }
 
   void _showQuickOptions() {
+    if (_usesStableSettingsDialog) {
+      showDialog<void>(
+        context: context,
+        // A bottom sheet on iPad can receive the same pointer-up that opened
+        // it and dismiss itself immediately. The dialog stays open until the
+        // player chooses its visible close button.
+        barrierDismissible: false,
+        builder:
+            (dialogContext) => Dialog(
+              alignment: Alignment.bottomCenter,
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.fromLTRB(96, 72, 96, 46),
+              child: Material(
+                color: const Color(0xFF101820),
+                elevation: 18,
+                borderRadius: BorderRadius.circular(24),
+                clipBehavior: Clip.antiAlias,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: _quickOptionsContent(dialogContext, showClose: true),
+                ),
+              ),
+            ),
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF101820),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder:
-          (sheetContext) => SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    _isSpanish ? 'Menu del juego' : 'Game menu',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w900,
-                    ),
+      builder: (sheetContext) => _quickOptionsContent(sheetContext),
+    );
+  }
+
+  Widget _quickOptionsContent(
+    BuildContext sheetContext, {
+    bool showClose = false,
+  }) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          showClose ? 26 : 18,
+          showClose ? 24 : 18,
+          showClose ? 26 : 18,
+          showClose ? 28 : 22,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Text(
+                  _isSpanish ? 'Menú del juego' : 'Game menu',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
                   ),
-                  const SizedBox(height: 14),
-                  const GameAudioControls(compact: true),
-                  const SizedBox(height: 14),
-                  FilledButton.icon(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      unawaited(_confirmEndCpuGame());
-                    },
-                    icon: const Icon(Icons.exit_to_app_rounded),
-                    label: Text(_isSpanish ? 'Terminar partida' : 'End game'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE53935),
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      Navigator.pushNamed(context, '/game-settings');
-                    },
-                    icon: const Icon(Icons.sports_esports_rounded),
-                    label: Text(
-                      _isSpanish ? 'Configuracion del juego' : 'Game Settings',
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(sheetContext);
-                      Navigator.pushNamed(context, '/note-settings');
-                    },
-                    icon: const Icon(Icons.edit_note_rounded),
-                    label: Text(
-                      _isSpanish ? 'Configuracion de apuntes' : 'Note Settings',
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                    ),
+                ),
+                if (showClose) ...[
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close_rounded),
+                    color: Colors.white70,
+                    tooltip: _isSpanish ? 'Cerrar' : 'Close',
                   ),
                 ],
+              ],
+            ),
+            const SizedBox(height: 14),
+            const GameAudioControls(compact: true),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                unawaited(_confirmEndCpuGame());
+              },
+              icon: const Icon(Icons.exit_to_app_rounded),
+              label: Text(_isSpanish ? 'Terminar partida' : 'End game'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE53935),
+                foregroundColor: Colors.white,
               ),
             ),
-          ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                Navigator.pushNamed(context, '/game-settings');
+              },
+              icon: const Icon(Icons.sports_esports_rounded),
+              label: Text(
+                _isSpanish ? 'Configuración del juego' : 'Game Settings',
+              ),
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                Navigator.pushNamed(context, '/note-settings');
+              },
+              icon: const Icon(Icons.edit_note_rounded),
+              label: Text(
+                _isSpanish ? 'Configuración de apuntes' : 'Note Settings',
+              ),
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -967,10 +1113,11 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
       KapiCosmeticType.domino,
     );
     final compact = MediaQuery.sizeOf(context).width < 520;
-    final handHeight = 78.0 * _handTileScale;
+    final handHeight = 78.0 * _effectiveHandTileScale;
     const handBottom = 8.0;
     final statusBottom = handHeight + handBottom + 10;
     final showPassAction = _shouldShowPassAction;
+    final boardStatusReserve = showPassAction ? 86.0 : 34.0;
     return Container(
       decoration: BoxDecoration(
         color: tableStyle.primary,
@@ -1053,13 +1200,11 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
             right: 18,
             child: _buildCpuHandPreview(compact: compact),
           ),
-          if (_isDrawMode)
-            Positioned(right: 12, bottom: 124, child: _buildPoolBadge()),
           Positioned.fill(
             top: compact ? 48 : 62,
             left: 12,
             right: 12,
-            bottom: statusBottom + 34,
+            bottom: statusBottom + boardStatusReserve,
             child: _BoardView(
               board: _board,
               centerTileScale: 1.0,
@@ -1104,11 +1249,21 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
                 ),
               ),
             ),
-          if (_roundOver)
+          if (_roundOver && !_blockResultPending && _specialEffectKind == null)
             Positioned.fill(
               child: DominoResultCelebration(
                 showConfetti: _matchOver,
                 child: _buildRoundOverCard(),
+              ),
+            ),
+          if (_specialEffectKind != null)
+            Positioned.fill(
+              child: DominoSpecialPlayEffect(
+                key: ValueKey('block-cpu-special-$_specialEffectSequence'),
+                kind: _specialEffectKind!,
+                sequence: _specialEffectSequence,
+                spanish: _isSpanish,
+                playerName: _specialEffectPlayerName,
               ),
             ),
         ],
@@ -1573,69 +1728,84 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
     );
   }
 
-  Widget _buildPoolBadge() {
-    return Container(
-      width: 98,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(
-          alpha: _isPlayerTurn && _isDrawMode ? 0.44 : 0.18,
+  Widget _buildPoolBadge({bool compact = false}) {
+    return Semantics(
+      label:
+          _isSpanish
+              ? '${_pool.length} fichas en el pozo'
+              : '${_pool.length} tiles in the pool',
+      excludeSemantics: true,
+      child: Container(
+        key: const ValueKey('draw-pool-badge'),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xCC071524),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _gold.withValues(alpha: 0.34)),
         ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color:
-              _isPlayerTurn && _isDrawMode
-                  ? _gold.withValues(alpha: 0.38)
-                  : Colors.white.withValues(alpha: 0.10),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.inventory_2_rounded,
-            color: Colors.white70,
-            size: 18,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '${_pool.length}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            KapiPoolStackIcon(size: compact ? 20 : 24),
+            SizedBox(width: compact ? 3 : 5),
+            Text(
+              _isSpanish ? 'POZO' : 'POOL',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.68),
+                fontSize: compact ? 7 : 8,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.6,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 4),
+            Text(
+              '${_pool.length}',
+              key: const ValueKey('draw-pool-count'),
+              style: TextStyle(
+                color: _gold,
+                fontSize: compact ? 13 : 15,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   bool get _shouldShowPassAction {
-    if (!_isPlayerTurn || _roundOver || _cpuThinking) return false;
+    if (_playerHand.isEmpty || !_isPlayerTurn || _roundOver || _cpuThinking) {
+      return false;
+    }
     return !_playerHand.any((tile) => _validSides(tile).isNotEmpty);
   }
 
   Widget _buildStatusBar({bool showPassAction = false}) {
     final visible = _statusVisible || showPassAction;
-    final statusText =
-        showPassAction
-            ? (_isDrawMode && _pool.isNotEmpty
-                ? (_isSpanish ? 'Toma del pozo.' : 'Draw from pool.')
-                : (_isSpanish ? 'Sin jugada.' : 'No move.'))
-            : _status;
-    final actionLabel =
-        _isDrawMode && _pool.isNotEmpty
-            ? (_isSpanish ? 'Pozo' : 'Pool')
-            : (_isSpanish ? 'Paso' : 'Pass');
-    return IgnorePointer(
-      ignoring: !visible,
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 260),
-        opacity: visible ? 1 : 0,
-        child: AnimatedSlide(
-          duration: const Duration(milliseconds: 260),
-          offset: visible ? Offset.zero : const Offset(0, 0.18),
-          child: Container(
+    final canDraw = _isDrawMode && _pool.isNotEmpty;
+    final hasFreshDrawFeedback =
+        _status.startsWith('Tomaste ') || _status.startsWith('You drew ');
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compactDrawAction = constraints.maxWidth < 370;
+        final showTurnChip = constraints.maxWidth >= 300;
+        final Widget content;
+
+        if (showPassAction && canDraw) {
+          content = DrawPoolActionButton(
+            key: const ValueKey('draw-pool-action'),
+            remaining: _pool.length,
+            isSpanish: _isSpanish,
+            compact: compactDrawAction,
+            fillWidth: true,
+            feedbackText: hasFreshDrawFeedback ? _status : null,
+            onPressed: _drawOrPass,
+          );
+        } else if (showPassAction) {
+          content = _buildPassTurnStatusAction();
+        } else {
+          content = Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.44),
@@ -1644,32 +1814,34 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
             ),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _gold.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    _cpuThinking
-                        ? (_isSpanish ? 'CPU' : 'CPU')
-                        : (_isPlayerTurn
-                            ? (_isSpanish ? 'Tu turno' : 'Your turn')
-                            : 'CPU'),
-                    style: const TextStyle(
-                      color: _gold,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12,
+                if (showTurnChip) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _gold.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      _cpuThinking
+                          ? 'CPU'
+                          : (_isPlayerTurn
+                              ? (_isSpanish ? 'Tu turno' : 'Your turn')
+                              : 'CPU'),
+                      style: const TextStyle(
+                        color: _gold,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
+                  const SizedBox(width: 10),
+                ],
                 Expanded(
                   child: Text(
-                    statusText,
+                    _status,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -1678,31 +1850,107 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
                     ),
                   ),
                 ),
-                if (showPassAction) ...[
-                  const SizedBox(width: 10),
-                  FilledButton(
-                    onPressed: _drawOrPass,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE53935),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 10,
-                      ),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        side: BorderSide(color: _gold.withValues(alpha: 0.38)),
-                      ),
-                    ),
-                    child: Text(
-                      actionLabel,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                  ),
+                if (_isDrawMode) ...[
+                  const SizedBox(width: 8),
+                  _buildPoolBadge(compact: constraints.maxWidth < 330),
                 ],
               ],
+            ),
+          );
+        }
+
+        return IgnorePointer(
+          ignoring: !visible,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 260),
+            opacity: visible ? 1 : 0,
+            child: AnimatedSlide(
+              duration: const Duration(milliseconds: 260),
+              offset: visible ? Offset.zero : const Offset(0, 0.18),
+              child: content,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPassTurnStatusAction() {
+    final semanticsLabel =
+        _isSpanish
+            ? 'Sin jugada. Toca para pasar el turno.'
+            : 'No move. Tap to pass your turn.';
+    return Semantics(
+      button: true,
+      label: semanticsLabel,
+      excludeSemantics: true,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          key: const ValueKey('draw-pass-action'),
+          onTap: _drawOrPass,
+          borderRadius: BorderRadius.circular(16),
+          splashColor: _gold.withValues(alpha: 0.20),
+          child: Ink(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xF0142028), Color(0xF0551719)],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _gold, width: 1.5),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 56),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.fast_forward_rounded,
+                    color: _gold,
+                    size: 32,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isSpanish ? 'Sin jugada' : 'No move',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Text(
+                          _isSpanish
+                              ? 'Toca para pasar el turno'
+                              : 'Tap to pass your turn',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _gold,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: _gold,
+                    size: 28,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1744,8 +1992,8 @@ class _DominoCpuGameScreenState extends State<DominoCpuGameScreen>
                   highlighted: playable,
                   color: dominoStyle.primary,
                   pipColor: dominoStyle.secondary,
-                  width: 52 * _handTileScale,
-                  height: 60 * _handTileScale,
+                  width: 52 * _effectiveHandTileScale,
+                  height: 60 * _effectiveHandTileScale,
                 ),
               ),
             );
@@ -1947,91 +2195,7 @@ class DrawDominoGameScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF6D0907), Color(0xFF071524)],
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.arrow_back_rounded,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                const Icon(
-                  Icons.inventory_2_rounded,
-                  color: Color(0xFFFFD36B),
-                  size: 64,
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  isSpanish ? 'Control con pozo' : 'Draw / Pool',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 34,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  isSpanish
-                      ? 'Este modo viene pronto. Por ahora prueba Block beta.'
-                      : 'This mode is coming soon. For now, test Block beta.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.78),
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed:
-                        () => Navigator.pushReplacementNamed(
-                          context,
-                          '/domino-block',
-                        ),
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: Text(
-                      isSpanish ? 'Probar Block beta' : 'Try Block beta',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE53935),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                  ),
-                ),
-                const Spacer(),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    return const DominoCpuGameScreen(mode: DominoCpuMode.draw);
   }
 }
 
@@ -2061,8 +2225,19 @@ class _BoardView extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (board.isEmpty) return const SizedBox.shrink();
+        // Use the same played-domino size as Block online on an iPad/Mac.
+        // _layoutBoard keeps the opening centered and only scales down once
+        // a long chain reaches the table edges.
+        final largeTable =
+            constraints.maxWidth >= 600 && constraints.maxHeight >= 500;
+        final macPlayedTileFactor =
+            !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
+                ? 0.80
+                : 1.0;
         final tileW =
-            (constraints.maxWidth < 430 ? 38.0 : 42.0) * playedTileScale;
+            (largeTable ? 75.6 : (constraints.maxWidth < 430 ? 38.0 : 42.0)) *
+            playedTileScale *
+            macPlayedTileFactor;
         final tileH = tileW * 1.86;
         final positions = _layoutBoard(
           board,
@@ -2164,13 +2339,39 @@ class _BoardView extends StatelessWidget {
           ],
         );
         if (previews.isEmpty) return content;
-        return ClipRect(
-          child: Transform.translate(
-            offset: fitOffset,
-            child: Transform.scale(
-              alignment: Alignment.topLeft,
-              scale: fitScale,
-              child: content,
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (details) {
+            final boardPoint = (details.localPosition - fitOffset) / fitScale;
+            _DominoSidePreview? closest;
+            var closestDistance = double.infinity;
+            for (final preview in previews) {
+              final visualSize =
+                  _drawSize(Size(tileW, tileH), preview.position.vertical) *
+                  preview.position.scaleFactor;
+              final hitRect = Rect.fromLTWH(
+                preview.position.dx,
+                preview.position.dy,
+                visualSize.width,
+                visualSize.height,
+              ).inflate(24);
+              if (!hitRect.contains(boardPoint)) continue;
+              final distance = (hitRect.center - boardPoint).distanceSquared;
+              if (distance < closestDistance) {
+                closest = preview;
+                closestDistance = distance;
+              }
+            }
+            if (closest != null) onSideChoice?.call(closest.side);
+          },
+          child: ClipRect(
+            child: Transform.translate(
+              offset: fitOffset,
+              child: Transform.scale(
+                alignment: Alignment.topLeft,
+                scale: fitScale,
+                child: content,
+              ),
             ),
           ),
         );

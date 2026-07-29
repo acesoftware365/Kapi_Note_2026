@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:dominoes_note2025/screens/admob_variable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -47,9 +50,15 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<KapiCosmeticsService>();
+    final premium = context.watch<PremiumNotifier>();
     final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     final items = KapiCosmeticsService.catalog
-        .where((item) => item.type == _type && item.storeVisible)
+        .where(
+          (item) =>
+              item.type == _type &&
+              (item.storeVisible || (Platform.isMacOS && item.macProOnly)) &&
+              (!item.macProOnly || Platform.isMacOS),
+        )
         .toList(growable: false);
     return Scaffold(
       backgroundColor: _ink,
@@ -319,6 +328,12 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                       Icons.flag_rounded,
                       _isSpanish ? 'Banderas' : 'Flags',
                     ),
+                    if (Platform.isMacOS)
+                      _tab(
+                        KapiCosmeticType.specialEffect,
+                        Icons.auto_awesome_rounded,
+                        _isSpanish ? 'Efectos' : 'Effects',
+                      ),
                   ],
                 ),
               ),
@@ -354,7 +369,8 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                       ),
                       itemCount: items.length,
                       itemBuilder:
-                          (context, index) => _itemCard(store, items[index]),
+                          (context, index) =>
+                              _itemCard(store, items[index], premium),
                     );
                   },
                 ),
@@ -434,7 +450,11 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
     );
   }
 
-  Widget _itemCard(KapiCosmeticsService store, KapiCosmeticItem item) {
+  Widget _itemCard(
+    KapiCosmeticsService store,
+    KapiCosmeticItem item,
+    PremiumNotifier premium,
+  ) {
     final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     final owned = store.owns(item);
     final equipped = store.equipped(item.type).id == item.id;
@@ -449,7 +469,13 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
             : canBuy
             ? _teal
             : const Color(0xFF536170);
-    final action = equipped ? null : () => _activateItem(store, item);
+    final proLocked = item.macProOnly && !premium.isMacPro;
+    final action =
+        equipped
+            ? null
+            : proLocked
+            ? () => Navigator.pushNamed(context, '/premium')
+            : () => _activateItem(store, item);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
@@ -604,7 +630,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                             ),
                           ),
                         ),
-                        if (item.exclusive)
+                        if (item.exclusive || item.macProOnly)
                           Positioned(
                             top: 5,
                             right: 5,
@@ -619,7 +645,9 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                                 border: Border.all(color: _champagne),
                               ),
                               child: Text(
-                                _isSpanish ? 'EXCLUSIVO' : 'EXCLUSIVE',
+                                item.macProOnly
+                                    ? 'PRO'
+                                    : (_isSpanish ? 'EXCLUSIVO' : 'EXCLUSIVE'),
                                 style: const TextStyle(
                                   color: _champagneLight,
                                   fontSize: 7,
@@ -682,7 +710,23 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
                     ),
                     child: FittedBox(
                       child:
-                          equipped || owned
+                          proLocked
+                              ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.workspace_premium_rounded),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    _isSpanish
+                                        ? 'Desbloquear Pro'
+                                        : 'Unlock Pro',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              )
+                              : equipped || owned
                               ? Text(
                                 equipped
                                     ? (_isSpanish ? 'Equipado' : 'Equipped')
@@ -724,6 +768,12 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
     KapiCosmeticItem item,
   ) async {
     if (!store.owns(item)) {
+      if (store.balance < item.price) {
+        _notEnough();
+        return;
+      }
+      final confirmed = await _confirmCosmeticPurchase(item, store.balance);
+      if (!confirmed || !mounted) return;
       final bought = await store.purchase(item);
       if (!bought || !mounted) {
         if (mounted) _notEnough();
@@ -731,6 +781,208 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
       }
     }
     await store.equip(item);
+  }
+
+  Future<bool> _confirmCosmeticPurchase(
+    KapiCosmeticItem item,
+    int balance,
+  ) => _showPurchaseConfirmation(
+    icon: item.emoji,
+    title:
+        _isSpanish
+            ? '¿Comprar ${item.nameFor(Localizations.localeOf(context))}?'
+            : 'Buy ${item.nameFor(Localizations.localeOf(context))}?',
+    message:
+        _isSpanish
+            ? 'Se descontarán ${item.price} Kapi Coins de tu saldo.'
+            : '${item.price} Kapi Coins will be deducted from your balance.',
+    priceLabel: '${item.price} KC',
+    balanceLabel:
+        _isSpanish
+            ? 'Saldo actual: $balance KC'
+            : 'Current balance: $balance KC',
+  );
+
+  Future<bool> _confirmCoinPackPurchase(KapiCoinPack pack, String price) =>
+      _showPurchaseConfirmation(
+        icon: '🪙',
+        title:
+            _isSpanish
+                ? '¿Comprar ${pack.coins} Kapi Coins?'
+                : 'Buy ${pack.coins} Kapi Coins?',
+        message:
+            _isSpanish
+                ? 'La compra será procesada de forma segura por la tienda.'
+                : 'The purchase will be securely processed by the store.',
+        priceLabel: price,
+        balanceLabel:
+            _isSpanish
+                ? 'Recibirás ${pack.coins} Kapi Coins'
+                : 'You will receive ${pack.coins} Kapi Coins',
+      );
+
+  Future<bool> _showPurchaseConfirmation({
+    required String icon,
+    required String title,
+    required String message,
+    required String priceLabel,
+    required String balanceLabel,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierColor: const Color(0xCC02060B),
+      builder:
+          (dialogContext) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 28,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 430),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF1B3142), Color(0xFF091521)],
+                  ),
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: _champagne, width: 1.5),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x99000000),
+                      blurRadius: 28,
+                      offset: Offset(0, 14),
+                    ),
+                    BoxShadow(color: Color(0x33D6B56B), blurRadius: 22),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 72,
+                      height: 72,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF241E14),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: _champagne, width: 1.5),
+                      ),
+                      child: Text(icon, style: const TextStyle(fontSize: 38)),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      message,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xCC08131E),
+                        borderRadius: BorderRadius.circular(15),
+                        border: Border.all(color: const Color(0x554D8FC9)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              balanceLabel,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            priceLabel,
+                            style: const TextStyle(
+                              color: _champagneLight,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed:
+                                () => Navigator.of(dialogContext).pop(false),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size.fromHeight(50),
+                              side: const BorderSide(color: Colors.white38),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                            ),
+                            child: Text(
+                              _isSpanish ? 'No' : 'No',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed:
+                                () => Navigator.of(dialogContext).pop(true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF8B2637),
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size.fromHeight(50),
+                              side: const BorderSide(color: _champagne),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                            ),
+                            child: FittedBox(
+                              child: Text(
+                                _isSpanish ? 'Sí, comprar' : 'Yes, buy',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+    );
+    return result ?? false;
   }
 
   Widget _emojiPreview(KapiCosmeticItem item) {
@@ -835,23 +1087,41 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
   }
 
   Widget _shopDomino(KapiCosmeticItem item, int top, int bottom) {
+    final pro = item.macProOnly;
+    final highlight =
+        Color.lerp(item.primary, Colors.white, pro ? .20 : .06) ?? item.primary;
+    final shadow = Color.lerp(item.primary, Colors.black, .42) ?? item.primary;
     return Container(
       width: 34,
       height: 70,
       padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
-        color: item.primary,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors:
+              pro
+                  ? [highlight, item.primary, shadow]
+                  : [item.primary, item.primary],
+          stops: pro ? const [0, .48, 1] : const [0, 1],
+        ),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: item.secondary.withValues(alpha: .82),
-          width: 1.4,
+          width: pro ? 2 : 1.4,
         ),
-        boxShadow: const [
-          BoxShadow(
+        boxShadow: [
+          const BoxShadow(
             color: Color(0x88000000),
             blurRadius: 8,
             offset: Offset(0, 5),
           ),
+          if (pro)
+            BoxShadow(
+              color: item.secondary.withValues(alpha: .42),
+              blurRadius: 12,
+              spreadRadius: 1,
+            ),
         ],
       ),
       child: Column(
@@ -975,7 +1245,7 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
     if (!mounted) return;
     final premium = context.read<PremiumNotifier>();
     if (!premium.isLoading && premium.coinProducts.isEmpty) {
-      await premium.loadProducts();
+      unawaited(premium.loadProducts());
     }
     if (!mounted) return;
 
@@ -1261,8 +1531,6 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
   }
 
   Future<void> _buyCoinPack(KapiCoinPack pack) async {
-    if (!await _ensureCoinAccount()) return;
-    if (!mounted) return;
     final premium = context.read<PremiumNotifier>();
     if (premium.productForCoinPack(pack) == null) {
       await premium.loadProducts();
@@ -1281,6 +1549,12 @@ class _KapiStoreScreenState extends State<KapiStoreScreen> {
       );
       return;
     }
+
+    final product = premium.productForCoinPack(pack)!;
+    final confirmed = await _confirmCoinPackPurchase(pack, product.price);
+    if (!confirmed || !mounted) return;
+    if (!await _ensureCoinAccount()) return;
+    if (!mounted) return;
 
     final started = await premium.buyCoinPack(pack);
     if (!mounted || started) return;

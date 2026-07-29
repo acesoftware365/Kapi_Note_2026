@@ -35,21 +35,29 @@ class AudioManager extends ChangeNotifier with WidgetsBindingObserver {
     sfxEnabled = prefs.getBool(_sfxEnabledKey) ?? true;
     musicVolume = prefs.getDouble(_musicVolumeKey) ?? 0.45;
     sfxVolume = prefs.getDouble(_sfxVolumeKey) ?? 0.80;
-    final audioContext = AudioContext(
-      android: const AudioContextAndroid(
-        isSpeakerphoneOn: false,
-        audioMode: AndroidAudioMode.normal,
-        stayAwake: true,
-        contentType: AndroidContentType.music,
-        usageType: AndroidUsageType.media,
-        audioFocus: AndroidAudioFocus.gain,
-      ),
-    );
-    await AudioPlayer.global.setAudioContext(audioContext);
-    await _musicPlayer.setAudioContext(audioContext);
+    // AudioContext is a mobile audio-session concept. Applying the Android
+    // context to the Darwin desktop player can leave AVPlayer prepared but
+    // silent on macOS, so configure it only where it is actually supported.
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final audioContext = AudioContext(
+        android: const AudioContextAndroid(
+          isSpeakerphoneOn: false,
+          audioMode: AndroidAudioMode.normal,
+          stayAwake: true,
+          contentType: AndroidContentType.music,
+          usageType: AndroidUsageType.media,
+          audioFocus: AndroidAudioFocus.gain,
+        ),
+      );
+      await AudioPlayer.global.setAudioContext(audioContext);
+      await _musicPlayer.setAudioContext(audioContext);
+      await _sfxPlayer.setPlayerMode(PlayerMode.lowLatency);
+    } else {
+      await _musicPlayer.setPlayerMode(PlayerMode.mediaPlayer);
+      await _sfxPlayer.setPlayerMode(PlayerMode.mediaPlayer);
+    }
     await _musicPlayer.setVolume(musicVolume);
     await _sfxPlayer.setVolume(sfxVolume);
-    await _sfxPlayer.setPlayerMode(PlayerMode.lowLatency);
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -68,17 +76,15 @@ class AudioManager extends ChangeNotifier with WidgetsBindingObserver {
         loop ? ReleaseMode.loop : ReleaseMode.release,
       );
       await _musicPlayer.play(AssetSource(assetPath), volume: musicVolume);
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        if (musicEnabled &&
-            currentMusic == assetPath &&
-            _musicPlayer.state != PlayerState.playing) {
-          await _musicPlayer.stop();
-          await _musicPlayer.setReleaseMode(
-            loop ? ReleaseMode.loop : ReleaseMode.release,
-          );
-          await _musicPlayer.play(AssetSource(assetPath), volume: musicVolume);
-        }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (musicEnabled &&
+          currentMusic == assetPath &&
+          _musicPlayer.state != PlayerState.playing) {
+        await _musicPlayer.stop();
+        await _musicPlayer.setReleaseMode(
+          loop ? ReleaseMode.loop : ReleaseMode.release,
+        );
+        await _musicPlayer.play(AssetSource(assetPath), volume: musicVolume);
       }
       notifyListeners();
     } catch (error) {
@@ -120,6 +126,11 @@ class AudioManager extends ChangeNotifier with WidgetsBindingObserver {
     try {
       await _sfxPlayer.stop();
       await _sfxPlayer.play(AssetSource(assetPath), volume: sfxVolume);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      if (sfxEnabled && _sfxPlayer.state != PlayerState.playing) {
+        await _sfxPlayer.stop();
+        await _sfxPlayer.play(AssetSource(assetPath), volume: sfxVolume);
+      }
     } catch (error) {
       debugPrint('Kapi audio SFX error: $error');
     }
@@ -168,9 +179,13 @@ class AudioManager extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.detached) {
+    final shouldPause =
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        (state == AppLifecycleState.inactive &&
+            (defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS));
+    if (shouldPause) {
       if (currentMusic != null && !musicPaused) {
         _pausedByLifecycle = true;
         unawaited(pauseMusic());

@@ -4,8 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 
-import '../services/analytics_service.dart';
+import '../premium_notifier.dart';
+import '../services/mac_pro_features_service.dart';
 import 'domino_online_game_screen.dart';
 import 'domino_player_profile.dart';
 
@@ -101,6 +103,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     batch.set(_db.collection('kapi_lobby_profiles').doc(publicId), {
       'publicId': _profile.publicId,
       'initials': _profile.initials,
+      'displayName': _profile.effectiveDisplayName,
       'countryCode': _profile.countryCode,
       'code': code,
       'hashtag': _myHashtag,
@@ -141,6 +144,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
         'fromId': fromId,
         'toId': toId,
         'fromInitials': _profile.initials,
+        'fromDisplayName': _profile.effectiveDisplayName,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -219,11 +223,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Future<void> _inviteFriend(_LobbyFriend friend) async {
     try {
+      final premium = context.read<PremiumNotifier>();
+      final customTarget =
+          premium.isMacPro
+              ? await MacProFeaturesService.instance.targetScore()
+              : null;
       final gameId = await OnlineGameFactory.createClassicGame(
         db: _db,
         host: _profile,
         guestId: friend.publicId,
         guestInitials: friend.initials,
+        targetScore: customTarget,
       );
       await _db.collection('kapi_game_invites').add({
         'fromId': _profile.publicId.toUpperCase(),
@@ -232,7 +242,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
         'status': 'pending',
         'gameId': gameId,
         'fromInitials': _profile.initials,
+        'fromDisplayName': _profile.effectiveDisplayName,
         'toInitials': friend.initials,
+        'toDisplayName': friend.effectiveDisplayName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -446,36 +458,19 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _playCpu,
-                  icon: const Icon(Icons.smart_toy_rounded),
-                  label: Text(_isSpanish ? 'Jugar CPU' : 'Play CPU'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.22),
-                    ),
-                  ),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _shareFriendInvite,
+              icon: const Icon(Icons.ios_share_rounded),
+              label: Text(_isSpanish ? 'Compartir ID' : 'Share ID'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(
+                  color: const Color(0xFFFFD36B).withValues(alpha: 0.36),
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _shareFriendInvite,
-                  icon: const Icon(Icons.ios_share_rounded),
-                  label: Text(_isSpanish ? 'Compartir ID' : 'Share ID'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: BorderSide(
-                      color: const Color(0xFFFFD36B).withValues(alpha: 0.36),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -506,7 +501,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
           _buildAvatarFrame(size: compact ? 46 : 52, visual: tierVisual),
           const SizedBox(height: 8),
           Text(
-            _profile.initials,
+            _profile.effectiveDisplayName,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -871,20 +866,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
   void _findMatch() {
     _showToast(
       _isSpanish
-          ? 'Buscando partida llegara pronto. Por ahora invita un amigo o juega CPU.'
-          : 'Matchmaking is coming soon. For now, invite a friend or play CPU.',
+          ? 'La búsqueda de partidas estará disponible pronto. Por ahora invita a un amigo.'
+          : 'Matchmaking is coming soon. For now, invite a friend.',
     );
-  }
-
-  void _playCpu() {
-    unawaited(
-      AnalyticsService.logDominoCpuGameStarted(
-        gameMode: 'classic',
-        countryCode: _profile.countryCode,
-        avatarKey: _profile.avatarKey,
-      ),
-    );
-    Navigator.pushNamed(context, '/domino-block');
   }
 
   Widget _buildFriendRequestCard({bool embedded = false}) {
@@ -1026,6 +1010,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 _LobbyFriend(
                   publicId: invite.fromId,
                   initials: invite.fromInitials,
+                  displayName: invite.fromDisplayName,
                   online: true,
                   rank: _isSpanish ? 'Quiere jugar' : 'Wants to play',
                 ),
@@ -1102,6 +1087,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
             if (query.isNotEmpty &&
                 !friend.publicId.toUpperCase().contains(query) &&
                 !friend.initials.toUpperCase().contains(query) &&
+                !friend.effectiveDisplayName.toUpperCase().contains(query) &&
                 !friend.rank.toUpperCase().contains(query)) {
               return const SizedBox.shrink();
             }
@@ -1117,6 +1103,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
       _LobbyFriend(
         publicId: request.fromId,
         initials: request.fromInitials,
+        displayName: request.fromDisplayName,
         online: false,
         rank: 'Pending',
       ),
@@ -1207,7 +1194,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  friend.publicId,
+                  friend.effectiveDisplayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1270,11 +1257,13 @@ class _LobbyRequest {
     required this.id,
     required this.fromId,
     required this.fromInitials,
+    this.fromDisplayName = '',
   });
 
   final String id;
   final String fromId;
   final String fromInitials;
+  final String fromDisplayName;
 
   static _LobbyRequest fromDocument(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
@@ -1284,6 +1273,7 @@ class _LobbyRequest {
       id: doc.id,
       fromId: (data['fromId'] as String? ?? '').toUpperCase(),
       fromInitials: data['fromInitials'] as String? ?? '??',
+      fromDisplayName: data['fromDisplayName'] as String? ?? '',
     );
   }
 }
@@ -1292,14 +1282,23 @@ class _LobbyFriend {
   const _LobbyFriend({
     required this.publicId,
     required this.initials,
+    this.displayName = '',
     required this.online,
     required this.rank,
   });
 
   final String publicId;
   final String initials;
+  final String displayName;
   final bool online;
   final String rank;
+
+  String get effectiveDisplayName {
+    final normalized = DominoPlayerProfile.normalizeDisplayName(displayName);
+    return DominoPlayerProfile.isValidDisplayName(normalized)
+        ? normalized
+        : initials;
+  }
 
   static _LobbyFriend fromProfile(
     String publicId,
@@ -1317,6 +1316,7 @@ class _LobbyFriend {
       initials:
           (data?['initials'] as String?) ??
           publicId.split('.').first.padRight(2, '?').substring(0, 2),
+      displayName: data?['displayName'] as String? ?? '',
       online: status == 'online' && isFresh,
       rank:
           DominoTierVisual.fromScore(
@@ -1345,12 +1345,14 @@ class _GameInvite {
     required this.id,
     required this.fromId,
     required this.fromInitials,
+    this.fromDisplayName = '',
     required this.gameId,
   });
 
   final String id;
   final String fromId;
   final String fromInitials;
+  final String fromDisplayName;
   final String gameId;
 
   static _GameInvite fromDocument(
@@ -1361,6 +1363,7 @@ class _GameInvite {
       id: doc.id,
       fromId: (data['fromId'] as String? ?? '').toUpperCase(),
       fromInitials: data['fromInitials'] as String? ?? '??',
+      fromDisplayName: data['fromDisplayName'] as String? ?? '',
       gameId: data['gameId'] as String? ?? '',
     );
   }

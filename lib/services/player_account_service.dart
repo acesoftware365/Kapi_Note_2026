@@ -99,9 +99,7 @@ class PlayerAccountService {
     if (signedInUser == null) {
       throw StateError('The store did not return a signed-in account.');
     }
-    if (!signedInUser.emailVerified) {
-      await signedInUser.sendEmailVerification();
-    }
+    await _sendEmailVerificationIfNeeded(signedInUser);
     return _completeSignedInUser(signedInUser, createIfMissing: true);
   }
 
@@ -118,6 +116,7 @@ class PlayerAccountService {
     if (signedInUser == null) {
       throw StateError('The store did not return a signed-in account.');
     }
+    await _sendEmailVerificationIfNeeded(signedInUser);
     return _completeSignedInUser(
       signedInUser,
       createIfMissing: createIfMissing,
@@ -145,6 +144,17 @@ class PlayerAccountService {
     final current = user;
     if (current == null || current.isAnonymous || current.emailVerified) return;
     await current.sendEmailVerification();
+  }
+
+  Future<void> _sendEmailVerificationIfNeeded(User signedInUser) async {
+    if (signedInUser.emailVerified) return;
+    try {
+      await signedInUser.sendEmailVerification();
+    } on FirebaseAuthException catch (error) {
+      // Firebase rate-limits repeated verification emails. A recent email may
+      // already be on its way, so this should not prevent the account login.
+      if (error.code != 'too-many-requests') rethrow;
+    }
   }
 
   Future<PlayerAccountResult> _completeSignedInUser(
@@ -202,6 +212,38 @@ class PlayerAccountService {
     await _syncRankingIdentity(profile);
   }
 
+  /// Publishes the macOS Pro badge without changing mobile entitlements.
+  Future<void> syncMacProStatus(bool active) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) return;
+    final currentUser = user;
+    if (currentUser == null || currentUser.isAnonymous) return;
+    final profile = await DominoPlayerProfile.load();
+    final changes = <String, Object>{
+      'macPro': active,
+      'macProUpdatedAt': FieldValue.serverTimestamp(),
+    };
+    await Future.wait([
+      _db
+          .collection(collection)
+          .doc(currentUser.uid)
+          .set(changes, SetOptions(merge: true)),
+      _db
+          .collection('kapi_lobby_profiles')
+          .doc(profile.publicId)
+          .set(changes, SetOptions(merge: true)),
+      _db
+          .collection('kapi_player_points')
+          .doc(profile.code)
+          .set(changes, SetOptions(merge: true)),
+      _db
+          .collection('kapi_ranking_seasons')
+          .doc(PlayerPointsService.seasonIdFor())
+          .collection('players')
+          .doc(profile.code)
+          .set(changes, SetOptions(merge: true)),
+    ]);
+  }
+
   Future<void> signOut() async {
     await _auth.signOut();
     if (_googleInitialized) await GoogleSignIn.instance.signOut();
@@ -223,6 +265,7 @@ class PlayerAccountService {
       code: profile.code,
       publicId: profile.publicId,
       initials: profile.initials,
+      displayName: profile.effectiveDisplayName,
       countryCode: profile.countryCode,
     );
   }
